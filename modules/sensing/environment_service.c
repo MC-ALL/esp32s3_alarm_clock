@@ -149,7 +149,7 @@ static void environment_task(void *arg)
 
 		ESP_LOGI(TAG, "env lux=%.2f temp=%.1f humi=%.1f",
 			s_snapshot.lux, s_snapshot.temperature_c, s_snapshot.humidity_percent);
-		vTaskDelay(pdMS_TO_TICKS(30000));
+		vTaskDelay(pdMS_TO_TICKS(1000));
 	}
 }
 

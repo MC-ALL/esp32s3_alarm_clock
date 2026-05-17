@@ -1,4 +1,5 @@
 #include "app_module.h"
+#include <app/display_service.h>
 #include <app/hw_config.h>
 #include <app/input_service.h>
 #include <app/module_common.h>
@@ -80,6 +81,10 @@ static void input_task(void *arg)
 
 		ESP_LOGI(TAG, "key%u %s", (unsigned)(event.key_index + 1),
 			event.pressed ? "pressed" : "released");
+
+		if (event.pressed) {
+			display_service_handle_key_press(event.key_index);
+		}
 	}
 }
 

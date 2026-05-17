@@ -24,8 +24,8 @@
 
 #define APP_PIN_DHT11_DATA           3
 
-#define APP_PIN_LD2410_UART_RX       17
-#define APP_PIN_LD2410_UART_TX       18
+#define APP_PIN_LD2410_UART_TX       17
+#define APP_PIN_LD2410_UART_RX       18
 #define APP_PIN_LD2410_OUT           16
 #define APP_LD2410_UART_BAUDRATE     256000
 

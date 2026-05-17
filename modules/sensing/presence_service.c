@@ -8,6 +8,7 @@
 #include <driver/uart.h>
 #include <esp_err.h>
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
@@ -16,7 +17,13 @@ static const char *TAG = "presence";
 static QueueHandle_t s_uart_event_queue;
 static TaskHandle_t s_presence_task;
 static bool s_present_hint;
-static uint32_t s_rx_bytes;
+static int64_t s_last_uart_rx_us;
+static int64_t s_last_uart_log_us;
+
+static bool presence_uart_active_recently(int64_t now_us)
+{
+	return (s_last_uart_rx_us > 0) && ((now_us - s_last_uart_rx_us) < 1000000);
+}
 
 static void presence_task(void *arg)
 {
@@ -33,10 +40,26 @@ static void presence_task(void *arg)
 					sizeof(rx_buf) < (size_t)event.size ? sizeof(rx_buf) : (size_t)event.size,
 					0);
 				if (read > 0) {
-					s_rx_bytes += (uint32_t)read;
-					ESP_LOGI(TAG, "uart rx bytes=%d total=%" PRIu32, read, s_rx_bytes);
+					s_last_uart_rx_us = esp_timer_get_time();
 				}
 			}
+		}
+
+		const int64_t now_us = esp_timer_get_time();
+		if (s_last_uart_log_us == 0) {
+			s_last_uart_log_us = now_us;
+		} else if ((now_us - s_last_uart_log_us) >= 1000000) {
+			const bool out_hint = gpio_get_level(APP_PIN_LD2410_OUT) != 0;
+			const bool uart_active = presence_uart_active_recently(now_us);
+			const int64_t recent_rx_ms = s_last_uart_rx_us > 0 ? ((now_us - s_last_uart_rx_us) / 1000) : -1;
+
+			ESP_LOGI(TAG,
+				"state=%s out=%d uart=%d rx_ms=%" PRIi64 " rule=out",
+				out_hint ? "present" : "absent",
+				out_hint ? 1 : 0,
+				uart_active ? 1 : 0,
+				recent_rx_ms);
+			s_last_uart_log_us = now_us;
 		}
 
 		const bool current_hint = gpio_get_level(APP_PIN_LD2410_OUT) != 0;
@@ -92,8 +115,9 @@ int presence_service_init(void)
 	}
 
 	s_present_hint = gpio_get_level(APP_PIN_LD2410_OUT) != 0;
-	s_rx_bytes = 0;
-	ESP_LOGI(TAG, "init uart=%d rx=%d tx=%d out=%d baud=%d",
+	s_last_uart_rx_us = 0;
+	s_last_uart_log_us = 0;
+	ESP_LOGI(TAG, "init uart=%d rx=%d tx=%d out=%d baud=%d rule=out",
 		UART_NUM_1, APP_PIN_LD2410_UART_RX, APP_PIN_LD2410_UART_TX,
 		APP_PIN_LD2410_OUT, APP_LD2410_UART_BAUDRATE);
 	return 0;
@@ -132,5 +156,5 @@ bool presence_service_is_present_hint(void)
 
 uint32_t presence_service_get_rx_bytes(void)
 {
-	return s_rx_bytes;
+	return 0;
 }

@@ -60,6 +60,8 @@ The current adaptation target is `ESP-IDF 6.0.1`.
 
 Current first-pass code paths include:
 - `SPI + ST7789 + LVGL` display path.
+- LVGL home screen skeleton aligned to the `index.html` home layout:
+  time panel, status panel, environment bar, tips row, alarm row, todo panel, key hint row.
 - Backlight PWM (`LEDC`).
 - 4-key GPIO input with ISR + queue.
 - Presence radar (`LD2410C`, UART + OUT pin).
@@ -69,6 +71,9 @@ Current first-pass code paths include:
 - Local persistence init (`NVS`).
 
 This is not final feature-complete firmware yet. It is a bring-up baseline for hardware validation.
+The current home page mixes dynamic data and static placeholders:
+- Dynamic: time text, environment snapshot
+- Static placeholders: sound/audio status, tips, alarm summary, todo list, bottom key hints
 
 ## 3. How Hardware Teammates Use This Repo
 
@@ -96,13 +101,14 @@ Replace serial port with your local device (`/dev/ttyUSB0`, `/dev/ttyACM0`, `COM
 
 ### 3.4 First Validation Checklist
 1. Boot logs show module init/start sequence without fatal errors.
-2. LCD powers on and shows basic LVGL screen.
-3. Backlight duty responds to service startup defaults.
-4. Key GPIO interrupts produce logs on press/release.
-5. Radar path (`LD2410C`) shows UART activity and presence hint changes.
-6. Environment logs update with BH1750/DHT11 samples.
-7. I2S path plays startup test tone.
-8. Wi-Fi path starts, and SNTP sync status logs can be observed after network is configured.
+2. LCD powers on and shows the structured LVGL home screen instead of a minimal text bring-up page.
+3. Home screen contains these visible blocks: time/date, status, environment, tips, alarm, todo, key hints.
+4. Backlight duty responds to service startup defaults.
+5. Key GPIO interrupts produce logs on press/release.
+6. Radar path (`LD2410C`) shows UART activity and presence hint changes.
+7. Environment logs update with BH1750/DHT11 samples.
+8. I2S path plays startup test tone.
+9. Wi-Fi path starts, and SNTP sync status logs can be observed after network is configured.
 
 ## 4. Local Configuration Notes
 
@@ -120,6 +126,7 @@ If board wiring differs, update:
 ### Version Adaptation Notes
 Current `ESP-IDF 6.0.1` adaptation record:
 - `docs/plans/2026-05-17-idf-6-adaptation-design.md`
+- `docs/plans/2026-05-17-lvgl-home-alignment-design.md`
 
 ## 5. Handoff Notes
 
