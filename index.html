@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>智能闹钟静态页面预览</title>
+  </head>
+  <body style="margin:0;padding:20px;background:#111;color:#eee;font-family:monospace;">
+    <h1 style="margin:0 0 12px;font-size:22px;">智能闹钟静态页面预览</h1>
+    <p style="margin:0 0 16px;color:#bbb;">纯静态 HTML，内联样式，不依赖外部 CSS/JS。</p>
+
+    <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;">
+      <section>
+        <h2 style="margin:0 0 8px;font-size:16px;">首页</h2>
+        <div style="width:240px;height:320px;background:#000;color:#fff;border:1px solid #555;box-sizing:border-box;padding:8px;display:flex;flex-direction:column;gap:6px;">
+          <div style="display:flex;gap:6px;height:76px;">
+            <div style="flex:1;border:1px solid #444;padding:4px;display:flex;flex-direction:column;justify-content:center;">
+              <div style="font-size:11px;color:#79a7ff;">2026-05-15 FRI</div>
+              <div style="font-size:36px;line-height:1;">19:30<span style="font-size:18px;">:08</span></div>
+            </div>
+            <div style="width:74px;border:1px solid #444;padding:4px;display:flex;flex-direction:column;justify-content:center;gap:4px;font-size:12px;">
+              <div style="display:flex;justify-content:space-between;"><span>声音</span><span>ON</span></div>
+              <div style="display:flex;justify-content:space-between;"><span>语音</span><span>OFF</span></div>
+            </div>
+          </div>
+          <div style="height:24px;border:1px solid #444;font-size:12px;display:flex;align-items:center;justify-content:space-around;">
+            <span style="color:#ffab40;">温 26C</span><span style="color:#86d3ff;">湿 58%</span><span style="color:#ffd54f;">光 320</span>
+          </div>
+          <div style="height:24px;border:1px solid #444;padding:4px;font-size:12px;display:flex;align-items:center;gap:6px;">
+            <span style="color:#bdbdbd;">Tips</span>
+            <span>环境光偏低，建议开灯</span>
+          </div>
+          <div style="height:24px;border:1px solid #444;padding:4px;display:flex;justify-content:space-between;align-items:center;">
+            <div style="display:flex;align-items:center;gap:6px;"><span style="color:#bdbdbd;font-size:12px;">闹钟</span><span style="font-size:16px;line-height:1;">07:30</span></div>
+            <div style="font-size:11px;color:#bdbdbd;">REPEAT</div>
+          </div>
+          <div style="flex:1;border:1px solid #444;padding:4px;font-size:12px;display:flex;flex-direction:column;gap:2px;">
+            <div style="color:#bdbdbd;">Todo List</div>
+            <div>1. 取快递</div>
+            <div>2. 提交周报</div>
+            <div style="color:#9e9e9e;">+4</div>
+          </div>
+          <div style="height:22px;border:1px solid #444;font-size:12px;display:grid;grid-template-columns:repeat(4,1fr);text-align:center;align-items:center;">
+            <span>设置</span><span>闹钟</span><span>网络</span><span>关机</span>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 style="margin:0 0 8px;font-size:16px;">极简显示页</h2>
+        <div style="width:240px;height:320px;background:#000;color:#fff;border:1px solid #555;box-sizing:border-box;display:flex;align-items:center;justify-content:center;">
+          <div style="font-size:56px;line-height:1;">19:30</div>
+        </div>
+      </section>
+
+      <section>
+        <h2 style="margin:0 0 8px;font-size:16px;">设置页</h2>
+        <div style="width:240px;height:320px;background:#000;color:#fff;border:1px solid #555;box-sizing:border-box;padding:8px;display:flex;flex-direction:column;gap:6px;">
+          <div style="height:28px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:18px;">设置</div>
+          <div style="flex:1;border:1px solid #444;padding:4px;display:flex;flex-direction:column;gap:4px;font-size:14px;">
+            <div style="border:1px solid #777;padding:4px;display:flex;justify-content:space-between;background:#111;"><span>SOUND</span><span>ON</span></div>
+            <div style="border:1px solid #444;padding:4px;display:flex;justify-content:space-between;"><span>AUDIO</span><span>OFF</span></div>
+            <div style="border:1px solid #444;padding:4px;display:flex;justify-content:space-between;"><span>VOLUME</span><span>6</span></div>
+            <div style="border:1px solid #444;padding:4px;display:flex;justify-content:space-between;"><span>ENV SAMPLE</span><span>5s</span></div>
+            <div style="border:1px solid #444;padding:4px;display:flex;justify-content:space-between;"><span>REPEAT</span><span>2</span></div>
+          </div>
+          <div style="height:22px;border:1px solid #444;font-size:12px;display:grid;grid-template-columns:repeat(4,1fr);text-align:center;align-items:center;">
+            <span>上移</span><span>下移</span><span>选择</span><span>返回</span>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 style="margin:0 0 8px;font-size:16px;">闹钟页（列表态）</h2>
+        <div style="width:240px;height:320px;background:#000;color:#fff;border:1px solid #555;box-sizing:border-box;padding:8px;display:flex;flex-direction:column;gap:6px;">
+          <div style="height:28px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:18px;">闹钟</div>
+          <div style="flex:1;display:grid;grid-template-columns:110px 1fr;gap:6px;">
+            <div style="border:1px solid #444;padding:4px;display:flex;flex-direction:column;gap:3px;font-size:13px;">
+              <div style="border:1px solid #777;background:#111;padding:3px;">+ 新建闹钟</div>
+              <div style="border:1px solid #444;padding:3px;">07:30 MON WED FRI</div>
+              <div style="border:1px solid #444;padding:3px;">08:00 DAILY</div>
+              <div style="border:1px solid #444;padding:3px;">20:15 ONCE</div>
+            </div>
+            <div style="border:1px solid #444;padding:6px;display:flex;flex-direction:column;justify-content:space-between;">
+              <div style="font-size:12px;color:#bdbdbd;">详情</div>
+              <div style="font-size:28px;line-height:1;">07:30</div>
+              <div style="font-size:12px;">MON WED FRI</div>
+              <div style="font-size:12px;">REPEAT / ENABLED</div>
+            </div>
+          </div>
+          <div style="height:22px;border:1px solid #444;font-size:12px;display:grid;grid-template-columns:repeat(4,1fr);text-align:center;align-items:center;">
+            <span>上移</span><span>下移</span><span>选择</span><span>返回</span>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 style="margin:0 0 8px;font-size:16px;">闹钟页（新建闹钟选择页）</h2>
+        <div style="width:240px;height:320px;background:#000;color:#fff;border:1px solid #555;box-sizing:border-box;padding:8px;display:flex;flex-direction:column;gap:6px;">
+          <div style="height:28px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:18px;">闹钟新建</div>
+          <div style="flex:1;border:1px solid #444;padding:4px;display:flex;flex-direction:column;gap:3px;font-size:13px;">
+            <div style="border:1px solid #777;background:#111;padding:3px;display:flex;justify-content:space-between;"><span>时</span><span>08</span></div>
+            <div style="border:1px solid #444;padding:3px;display:flex;justify-content:space-between;"><span>分</span><span>00</span></div>
+            <div style="border:1px solid #444;padding:3px;display:flex;justify-content:space-between;"><span>秒</span><span>00</span></div>
+            <div style="border:1px solid #444;padding:3px;display:flex;justify-content:space-between;"><span>星期方案</span><span>工作日</span></div>
+            <div style="border:1px solid #444;padding:3px;display:flex;justify-content:space-between;"><span>重复</span><span>ON</span></div>
+            <div style="border:1px solid #444;padding:3px;display:flex;justify-content:space-between;"><span>启用</span><span>ON</span></div>
+          </div>
+          <div style="height:22px;border:1px solid #444;font-size:12px;display:grid;grid-template-columns:repeat(4,1fr);text-align:center;align-items:center;">
+            <span>上移</span><span>下移</span><span>选择</span><span>返回</span>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 style="margin:0 0 8px;font-size:16px;">网络页（模块选择态）</h2>
+        <div style="width:240px;height:320px;background:#000;color:#fff;border:1px solid #555;box-sizing:border-box;padding:8px;display:flex;flex-direction:column;gap:6px;">
+          <div style="height:28px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:18px;">网络</div>
+          <div style="height:250px;display:flex;flex-direction:column;gap:6px;">
+            <div style="height:108px;display:flex;gap:6px;">
+              <div style="width:109px;border:1px solid #777;background:#111;padding:3px;font-size:11px;display:flex;flex-direction:column;gap:2px;line-height:1.1;">
+                <div style="color:#bdbdbd;">WiFi状态</div>
+                <div>Connected</div>
+                <div>Home-2.4G</div>
+                <div>192.168.1.72</div>
+              </div>
+              <div style="width:109px;border:1px solid #444;padding:3px;font-size:11px;display:flex;flex-direction:column;gap:2px;">
+                <div style="color:#bdbdbd;">扫描结果</div>
+                <div style="border:1px solid #444;padding:2px;">Home-2.4G</div>
+                <div style="border:1px solid #444;padding:2px;">Office-5G</div>
+                <div style="border:1px solid #444;padding:2px;">Lab-AP01</div>
+              </div>
+            </div>
+            <div style="height:136px;display:flex;gap:6px;">
+              <div style="width:109px;border:1px solid #444;padding:4px;font-size:12px;display:flex;flex-direction:column;gap:3px;">
+                <div style="color:#bdbdbd;">动作</div>
+                <div style="border:1px solid #444;padding:2px;">扫描</div>
+                <div style="border:1px solid #444;padding:2px;">断开</div>
+                <div style="border:1px solid #444;padding:2px;">校时</div>
+                <div style="border:1px solid #444;padding:2px;">同步Todo</div>
+              </div>
+              <div style="width:109px;border:1px solid #444;padding:4px;font-size:11px;display:flex;flex-direction:column;gap:3px;">
+                <div style="color:#bdbdbd;">同步状态</div>
+                <div>TIME OK</div>
+                <div>TODO OK</div>
+                <div>19:25:10</div>
+              </div>
+            </div>
+          </div>
+          <div style="height:22px;border:1px solid #444;font-size:12px;display:grid;grid-template-columns:repeat(4,1fr);text-align:center;align-items:center;">
+            <span>上移</span><span>下移</span><span>选择</span><span>返回</span>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 style="margin:0 0 8px;font-size:16px;">关机确认页</h2>
+        <div style="width:240px;height:320px;background:#000;color:#fff;border:1px solid #555;box-sizing:border-box;padding:8px;display:flex;flex-direction:column;gap:6px;">
+          <div style="height:28px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:18px;">关机确认</div>
+          <div style="flex:1;border:1px solid #444;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;">
+            <div style="font-size:28px;">确认关机？</div>
+            <div style="font-size:12px;color:#bdbdbd;">再次确认后关闭系统</div>
+          </div>
+          <div style="height:22px;border:1px solid #444;font-size:12px;display:grid;grid-template-columns:repeat(4,1fr);text-align:center;align-items:center;">
+            <span>返回</span><span>-</span><span>-</span><span>确认</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>
