@@ -3,11 +3,11 @@
 #include <app/hw_config.h>
 #include <app/module_common.h>
 
+#include <dht.h>
 #include <driver/gpio.h>
 #include <driver/i2c_master.h>
 #include <esp_err.h>
 #include <esp_log.h>
-#include <esp_rom_sys.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -21,69 +21,6 @@ static TaskHandle_t s_env_task;
 static app_environment_snapshot_t s_snapshot;
 static SemaphoreHandle_t s_snapshot_mutex;
 static uint32_t s_dht11_fail_streak;
-
-static int dht11_wait_for_level(int expected_level, int timeout_us)
-{
-	const int64_t start = esp_timer_get_time();
-
-	while (gpio_get_level(APP_PIN_DHT11_DATA) != expected_level) {
-		if ((esp_timer_get_time() - start) > timeout_us) {
-			return -1;
-		}
-		esp_rom_delay_us(1);
-	}
-
-	return 0;
-}
-
-static int dht11_read(float *temperature_c, float *humidity_percent)
-{
-	uint8_t data[5] = { 0 };
-
-	gpio_set_direction(APP_PIN_DHT11_DATA, GPIO_MODE_OUTPUT_OD);
-	gpio_set_level(APP_PIN_DHT11_DATA, 0);
-	vTaskDelay(pdMS_TO_TICKS(20));
-	gpio_set_level(APP_PIN_DHT11_DATA, 1);
-	esp_rom_delay_us(40);
-	gpio_set_direction(APP_PIN_DHT11_DATA, GPIO_MODE_INPUT);
-	gpio_pullup_en(APP_PIN_DHT11_DATA);
-
-	if (dht11_wait_for_level(0, 100) != 0) {
-		return -1;
-	}
-	if (dht11_wait_for_level(1, 100) != 0) {
-		return -1;
-	}
-	if (dht11_wait_for_level(0, 100) != 0) {
-		return -1;
-	}
-
-	for (int bit = 0; bit < 40; bit++) {
-		if (dht11_wait_for_level(1, 70) != 0) {
-			return -1;
-		}
-
-		const int64_t high_start = esp_timer_get_time();
-		if (dht11_wait_for_level(0, 100) != 0) {
-			return -1;
-		}
-
-		const int64_t high_time = esp_timer_get_time() - high_start;
-		data[bit / 8] <<= 1;
-		if (high_time > 40) {
-			data[bit / 8] |= 1U;
-		}
-	}
-
-	const uint8_t checksum = (uint8_t)(data[0] + data[1] + data[2] + data[3]);
-	if (checksum != data[4]) {
-		return -2;
-	}
-
-	*humidity_percent = (float)data[0] + ((float)data[1] / 10.0f);
-	*temperature_c = (float)data[2] + ((float)data[3] / 10.0f);
-	return 0;
-}
 
 static int bh1750_measure_lux(float *lux_out)
 {
@@ -116,7 +53,11 @@ static void environment_task(void *arg)
 		float temperature_c = 0.0f;
 		float humidity_percent = 0.0f;
 		const int bh1750_ret = bh1750_measure_lux(&lux);
-		const int dht11_ret = dht11_read(&temperature_c, &humidity_percent);
+		const esp_err_t dht11_ret = dht_read_float_data(
+			DHT_TYPE_DHT11,
+			(gpio_num_t)APP_PIN_DHT11_DATA,
+			&humidity_percent,
+			&temperature_c);
 
 		if (xSemaphoreTake(s_snapshot_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
 			vTaskDelay(pdMS_TO_TICKS(1000));
@@ -131,7 +72,10 @@ static void environment_task(void *arg)
 			ESP_LOGW(TAG, "bh1750 read failed: %d", bh1750_ret);
 		}
 
-		if (dht11_ret == 0) {
+		if (dht11_ret == ESP_OK) {
+			if (s_dht11_fail_streak > 0U) {
+				ESP_LOGI(TAG, "dht11 recovered after %" PRIu32 " failures", s_dht11_fail_streak);
+			}
 			s_snapshot.dht11_valid = true;
 			s_snapshot.temperature_c = temperature_c;
 			s_snapshot.humidity_percent = humidity_percent;
@@ -140,7 +84,10 @@ static void environment_task(void *arg)
 			s_snapshot.dht11_valid = false;
 			s_dht11_fail_streak++;
 			if (s_dht11_fail_streak == 1U || (s_dht11_fail_streak % 10U) == 0U) {
-				ESP_LOGW(TAG, "dht11 read failed: %d (streak=%" PRIu32 ")", dht11_ret, s_dht11_fail_streak);
+				ESP_LOGW(TAG,
+					"dht11 read failed: %s (%d), gpio=%d level=%d streak=%" PRIu32,
+					esp_err_to_name(dht11_ret), (int)dht11_ret, APP_PIN_DHT11_DATA,
+					gpio_get_level(APP_PIN_DHT11_DATA), s_dht11_fail_streak);
 			}
 		}
 
@@ -149,7 +96,7 @@ static void environment_task(void *arg)
 
 		ESP_LOGI(TAG, "env lux=%.2f temp=%.1f humi=%.1f",
 			s_snapshot.lux, s_snapshot.temperature_c, s_snapshot.humidity_percent);
-		vTaskDelay(pdMS_TO_TICKS(1000));
+		vTaskDelay(pdMS_TO_TICKS(2000));
 	}
 }
 
@@ -189,7 +136,7 @@ int environment_service_init(void)
 		return -1;
 	}
 
-	ESP_LOGI(TAG, "init bh1750 sda=%d scl=%d addr=0x%02X dht11_gpio=%d",
+	ESP_LOGI(TAG, "init bh1750 sda=%d scl=%d addr=0x%02X dht11_gpio=%d dht_driver=esp-idf-lib/dht type=DHT11 sample_ms=2000",
 		APP_PIN_BH1750_SDA, APP_PIN_BH1750_SCL, APP_BH1750_I2C_ADDR, APP_PIN_DHT11_DATA);
 	return 0;
 }
