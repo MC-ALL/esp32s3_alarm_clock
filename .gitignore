@@ -1,3 +1,7 @@
 .vscode/
 
 now.txt
+
+.agent/
+.agents/
+.codex/

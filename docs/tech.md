@@ -111,7 +111,6 @@ app/
   Kconfig
   CMakeLists.txt
   prj.conf
-  tests/
 ```
 
 目标板卡冻结为 `esp32s3_devkitc/procpu` 变体；若构建系统实际 target spelling 采用 Zephyr 新格式，则保持 `esp32s3_devkitc` + `procpu` 变体选择，不在业务代码里写死板级差异。
