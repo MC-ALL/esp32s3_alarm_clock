@@ -31,6 +31,21 @@ const struct app_module_desc *app_modules_get(size_t *count)
 	return MODULES;
 }
 
+static void app_modules_stop_range(const struct app_module_desc *modules, size_t count)
+{
+	for (size_t i = count; i > 0; i--) {
+		const struct app_module_desc *module = &modules[i - 1];
+		if (module->stop == NULL) {
+			continue;
+		}
+
+		int ret = module->stop();
+		if (ret != 0) {
+			ESP_LOGE(TAG, "module %s stop failed during rollback: %d", module->name, ret);
+		}
+	}
+}
+
 int app_modules_init_all(void)
 {
 	size_t count = 0;
@@ -45,6 +60,7 @@ int app_modules_init_all(void)
 		int ret = module->init();
 		if (ret != 0) {
 			ESP_LOGE(TAG, "module %s init failed: %d", module->name, ret);
+			app_modules_stop_range(modules, i);
 			return ret;
 		}
 	}
@@ -66,6 +82,7 @@ int app_modules_start_all(void)
 		int ret = module->start();
 		if (ret != 0) {
 			ESP_LOGE(TAG, "module %s start failed: %d", module->name, ret);
+			app_modules_stop_range(modules, i + 1);
 			return ret;
 		}
 	}
@@ -77,6 +94,7 @@ int app_modules_stop_all(void)
 {
 	size_t count = 0;
 	const struct app_module_desc *modules = app_modules_get(&count);
+	int first_error = 0;
 
 	for (size_t i = count; i > 0; i--) {
 		const struct app_module_desc *module = &modules[i - 1];
@@ -87,9 +105,11 @@ int app_modules_stop_all(void)
 		int ret = module->stop();
 		if (ret != 0) {
 			ESP_LOGE(TAG, "module %s stop failed: %d", module->name, ret);
-			return ret;
+			if (first_error == 0) {
+				first_error = ret;
+			}
 		}
 	}
 
-	return 0;
+	return first_error;
 }

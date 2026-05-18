@@ -3,6 +3,7 @@
 #include <app/display_service.h>
 #include <app/environment_service.h>
 #include <app/module_common.h>
+#include <app/net_service.h>
 #include <app/presence_service.h>
 
 #include <app/hw_config.h>
@@ -35,9 +36,32 @@ typedef enum {
 	DISPLAY_PAGE_POWER,
 } display_page_t;
 
+typedef enum {
+	ALARM_VIEW_LIST = 0,
+	ALARM_VIEW_ACTION,
+	ALARM_VIEW_EDIT,
+	ALARM_VIEW_DELETE_CONFIRM,
+} alarm_view_t;
+
+typedef enum {
+	ALARM_ACTION_EDIT = 0,
+	ALARM_ACTION_TOGGLE,
+	ALARM_ACTION_DELETE,
+	ALARM_ACTION_BACK,
+} alarm_action_t;
+
+typedef struct {
+	uint8_t hour;
+	uint8_t minute;
+	uint8_t second;
+	bool repeat;
+	bool enabled;
+} display_alarm_item_t;
+
 static esp_lcd_panel_io_handle_t s_panel_io;
 static esp_lcd_panel_handle_t s_panel;
 static bool s_ready;
+static bool s_spi_bus_owned;
 static display_page_t s_current_page = DISPLAY_PAGE_HOME;
 static SemaphoreHandle_t s_lvgl_mutex;
 static TaskHandle_t s_lvgl_task;
@@ -81,6 +105,31 @@ static lv_obj_t *s_key2_label;
 static lv_obj_t *s_key3_label;
 static lv_obj_t *s_key4_label;
 static lv_obj_t *s_env_label;
+static uint8_t s_settings_focus;
+static uint8_t s_alarm_focus;
+static uint8_t s_network_focus;
+static bool s_settings_editing;
+static bool s_network_selecting;
+static bool s_setting_sound_on;
+static bool s_setting_audio_on;
+static uint8_t s_setting_volume;
+static uint8_t s_setting_env_sample_s;
+static uint8_t s_setting_repeat_count;
+static uint8_t s_settings_edit_value;
+static uint8_t s_network_action_focus;
+static uint8_t s_network_scan_focus;
+static alarm_view_t s_alarm_view;
+static alarm_action_t s_alarm_action_focus;
+static uint8_t s_alarm_edit_field;
+static bool s_alarm_edit_existing;
+static uint8_t s_alarm_selected_index;
+static display_alarm_item_t s_alarm_edit_item;
+static display_alarm_item_t s_alarm_items[4];
+static uint8_t s_alarm_count;
+static char s_settings_body_text[192];
+static char s_alarm_body_text[320];
+static char s_network_body_text[320];
+static char s_power_body_text[96];
 static char s_last_time_text[16];
 static char s_last_date_text[32];
 static char s_last_time_state_text[16];
@@ -286,6 +335,215 @@ static void build_subpage_container(lv_obj_t **page, lv_obj_t **body_out, lv_obj
 	}
 }
 
+static void display_update_settings_page(void)
+{
+	const uint8_t preview_volume = (s_settings_editing && s_settings_focus == 2U) ? s_settings_edit_value : s_setting_volume;
+	const uint8_t preview_env_sample = (s_settings_editing && s_settings_focus == 3U) ? s_settings_edit_value : s_setting_env_sample_s;
+	const uint8_t preview_repeat = (s_settings_editing && s_settings_focus == 4U) ? s_settings_edit_value : s_setting_repeat_count;
+
+	snprintf(s_settings_body_text, sizeof(s_settings_body_text),
+		"%s SOUND:      %s\n%s AUDIO:      %s\n%s VOLUME:     %u%s\n%s ENV SAMPLE: %us%s\n%s REPEAT:     %u%s\n\nSTATE: %s",
+		s_settings_focus == 0U ? ">" : " ", s_setting_sound_on ? "ON" : "OFF",
+		s_settings_focus == 1U ? ">" : " ", s_setting_audio_on ? "ON" : "OFF",
+		s_settings_focus == 2U ? ">" : " ", (unsigned)preview_volume,
+		(s_settings_editing && s_settings_focus == 2U) ? " <" : "",
+		s_settings_focus == 3U ? ">" : " ", (unsigned)preview_env_sample,
+		(s_settings_editing && s_settings_focus == 3U) ? " <" : "",
+		s_settings_focus == 4U ? ">" : " ", (unsigned)preview_repeat,
+		(s_settings_editing && s_settings_focus == 4U) ? " <" : "",
+		s_settings_editing ? "EDIT" : "BROWSE");
+	lv_label_set_text(s_settings_body_label, s_settings_body_text);
+}
+
+static void display_update_alarm_page(void)
+{
+	char list_buf[192];
+	char detail_buf[96];
+	const char *action_label = "";
+
+	if (s_alarm_view == ALARM_VIEW_LIST) {
+		size_t offset = 0;
+		offset += (size_t)snprintf(list_buf + offset, sizeof(list_buf) - offset,
+			"%s + NEW ALARM\n\n",
+			s_alarm_focus == 0U ? ">" : " ");
+		offset += (size_t)snprintf(list_buf + offset, sizeof(list_buf) - offset,
+			"  EXISTING ALARMS\n");
+		for (uint8_t i = 0; i < s_alarm_count && offset < sizeof(list_buf); i++) {
+			offset += (size_t)snprintf(list_buf + offset, sizeof(list_buf) - offset,
+				"%s %02u:%02u:%02u  %s  %s\n",
+				s_alarm_focus == (uint8_t)(i + 1U) ? ">" : " ",
+				s_alarm_items[i].hour,
+				s_alarm_items[i].minute,
+				s_alarm_items[i].second,
+				s_alarm_items[i].repeat ? "REP" : "ONCE",
+				s_alarm_items[i].enabled ? "ON" : "OFF");
+		}
+		snprintf(s_alarm_body_text, sizeof(s_alarm_body_text),
+			"%s\nSTATE: LIST", list_buf);
+		lv_label_set_text(s_alarm_body_label, s_alarm_body_text);
+		return;
+	}
+
+	if (s_alarm_selected_index < s_alarm_count) {
+		snprintf(detail_buf, sizeof(detail_buf), "%02u:%02u:%02u  %s  %s",
+			s_alarm_items[s_alarm_selected_index].hour,
+			s_alarm_items[s_alarm_selected_index].minute,
+			s_alarm_items[s_alarm_selected_index].second,
+			s_alarm_items[s_alarm_selected_index].repeat ? "REP" : "ONCE",
+			s_alarm_items[s_alarm_selected_index].enabled ? "ON" : "OFF");
+	} else {
+		snprintf(detail_buf, sizeof(detail_buf), "NEW ALARM");
+	}
+
+	if (s_alarm_view == ALARM_VIEW_ACTION) {
+		static const char *ACTIONS[] = { "EDIT", "TOGGLE", "DELETE", "BACK" };
+		snprintf(s_alarm_body_text, sizeof(s_alarm_body_text),
+			"ITEM: %s\n\n%s %s\n%s %s\n%s %s\n%s %s\n\nSTATE: ACTION",
+			detail_buf,
+			s_alarm_action_focus == ALARM_ACTION_EDIT ? ">" : " ", ACTIONS[0],
+			s_alarm_action_focus == ALARM_ACTION_TOGGLE ? ">" : " ", ACTIONS[1],
+			s_alarm_action_focus == ALARM_ACTION_DELETE ? ">" : " ", ACTIONS[2],
+			s_alarm_action_focus == ALARM_ACTION_BACK ? ">" : " ", ACTIONS[3]);
+		lv_label_set_text(s_alarm_body_label, s_alarm_body_text);
+		return;
+	}
+
+	if (s_alarm_view == ALARM_VIEW_DELETE_CONFIRM) {
+		snprintf(s_alarm_body_text, sizeof(s_alarm_body_text),
+			"DELETE: %s ?\n\nK1 CANCEL\nK4 CONFIRM\n\nSTATE: DELETE", detail_buf);
+		lv_label_set_text(s_alarm_body_label, s_alarm_body_text);
+		return;
+	}
+
+	switch (s_alarm_edit_field) {
+	case 0:
+		action_label = "HOUR";
+		break;
+	case 1:
+		action_label = "MIN";
+		break;
+	case 2:
+		action_label = "SEC";
+		break;
+	case 3:
+		action_label = "REPEAT";
+		break;
+	default:
+		action_label = "ENABLED";
+		break;
+	}
+
+	snprintf(s_alarm_body_text, sizeof(s_alarm_body_text),
+		"EDIT: %s\n\nHOUR:    %02u%s\nMINUTE:  %02u%s\nSECOND:  %02u%s\nREPEAT:  %s%s\nENABLED: %s%s\n\nSTATE: EDIT",
+		action_label,
+		s_alarm_edit_item.hour, s_alarm_edit_field == 0U ? " <" : "",
+		s_alarm_edit_item.minute, s_alarm_edit_field == 1U ? " <" : "",
+		s_alarm_edit_item.second, s_alarm_edit_field == 2U ? " <" : "",
+		s_alarm_edit_item.repeat ? "YES" : "NO", s_alarm_edit_field == 3U ? " <" : "",
+		s_alarm_edit_item.enabled ? "ON" : "OFF", s_alarm_edit_field == 4U ? " <" : "");
+	lv_label_set_text(s_alarm_body_label, s_alarm_body_text);
+}
+
+static void display_update_network_page(void)
+{
+	static const char *ITEMS[] = {
+		"WIFI STATUS",
+		"ACTION",
+		"SCAN RESULTS",
+		"SYNC STATUS",
+	};
+	static const char *ACTION_ITEMS[] = {
+		"SCAN",
+		"BACK",
+	};
+	char detail_buf[160];
+	char scan_buf[64];
+	app_net_status_t net_status = { 0 };
+	app_net_scan_snapshot_t scan_snapshot = { 0 };
+
+	(void)net_service_get_status(&net_status);
+	(void)net_service_get_scan_snapshot(&scan_snapshot);
+
+	if (s_network_focus == 0U) {
+		snprintf(detail_buf, sizeof(detail_buf),
+			"SSID:      %s\nSTARTED:   %s\nCONNECTED: %s\nIP READY:  %s",
+			net_status.connected_ssid[0] != '\0' ? net_status.connected_ssid : "--",
+			net_status.wifi_started ? "YES" : "NO",
+			net_status.wifi_connected ? "YES" : "NO",
+			net_status.ip_ready ? "YES" : "NO");
+	} else if (s_network_focus == 1U) {
+		snprintf(detail_buf, sizeof(detail_buf),
+			"%s %s\n%s %s",
+			s_network_action_focus == 0U ? ">" : " ", ACTION_ITEMS[0],
+			s_network_action_focus == 1U ? ">" : " ", ACTION_ITEMS[1]);
+	} else if (s_network_focus == 2U) {
+		if (scan_snapshot.scan_in_progress) {
+			snprintf(detail_buf, sizeof(detail_buf), "SCANNING...");
+		} else if (!scan_snapshot.scan_ready || scan_snapshot.count == 0U) {
+			snprintf(detail_buf, sizeof(detail_buf), "NO RESULTS");
+		} else {
+			size_t offset = 0;
+			for (uint8_t i = 0; i < scan_snapshot.count && i < APP_NET_SCAN_MAX_RESULTS; i++) {
+				snprintf(scan_buf, sizeof(scan_buf), "%s %s (%ddBm)\n",
+					s_network_scan_focus == i ? ">" : " ",
+					scan_snapshot.records[i].ssid[0] != '\0' ? scan_snapshot.records[i].ssid : "<hidden>",
+					(int)scan_snapshot.records[i].rssi);
+				offset += (size_t)snprintf(detail_buf + offset, sizeof(detail_buf) - offset, "%s", scan_buf);
+				if (offset >= (sizeof(detail_buf) - 1U)) {
+					break;
+				}
+			}
+		}
+	} else {
+		snprintf(detail_buf, sizeof(detail_buf),
+			"TIME SYNC: %s\nWIFI:      %s\nIP:        %s",
+			net_status.time_synced ? "OK" : "WAIT",
+			net_status.wifi_connected ? "ONLINE" : "OFFLINE",
+			net_status.ip_addr[0] != '\0' ? net_status.ip_addr : "--");
+	}
+
+	snprintf(s_network_body_text, sizeof(s_network_body_text),
+		"MODULE: %s\n\n%s\n\nSTATE: %s",
+		ITEMS[s_network_focus],
+		detail_buf,
+		s_network_selecting ? "SELECT PLACEHOLDER" : "MODULE");
+	lv_label_set_text(s_network_body_label, s_network_body_text);
+}
+
+static void display_reset_subpage_state(display_page_t page)
+{
+	if (page == DISPLAY_PAGE_SETTINGS) {
+		s_settings_focus = 0;
+		s_settings_editing = false;
+		display_update_settings_page();
+	} else if (page == DISPLAY_PAGE_ALARM) {
+		s_alarm_focus = 0;
+		s_alarm_view = ALARM_VIEW_LIST;
+		s_alarm_action_focus = ALARM_ACTION_EDIT;
+		s_alarm_edit_field = 0;
+		s_alarm_edit_existing = false;
+		s_alarm_selected_index = 0;
+		display_update_alarm_page();
+	} else if (page == DISPLAY_PAGE_NETWORK) {
+		s_network_focus = 0;
+		s_network_selecting = false;
+		s_network_action_focus = 0;
+		s_network_scan_focus = 0;
+		display_update_network_page();
+	} else if (page == DISPLAY_PAGE_POWER) {
+		snprintf(s_power_body_text, sizeof(s_power_body_text), "Press K4 to confirm.");
+		lv_label_set_text(s_power_body_label, s_power_body_text);
+	}
+}
+
+static void display_enter_page(display_page_t page)
+{
+	s_current_page = page;
+	if (page != DISPLAY_PAGE_HOME) {
+		display_reset_subpage_state(page);
+	}
+}
+
 static void display_apply_page_state(void)
 {
 	const bool home = (s_current_page == DISPLAY_PAGE_HOME);
@@ -311,18 +569,65 @@ static void display_apply_page_state(void)
 
 	set_obj_hidden(s_key_panel, false);
 
-	if (s_current_page == DISPLAY_PAGE_POWER) {
-		lv_label_set_text(s_key1_label, "Back");
-		lv_label_set_text(s_key2_label, "");
-		lv_label_set_text(s_key3_label, "");
-		lv_label_set_text(s_key4_label, "Confirm");
+	if (s_current_page == DISPLAY_PAGE_SETTINGS) {
+		if (s_settings_editing) {
+			lv_label_set_text(s_key1_label, "Inc");
+			lv_label_set_text(s_key2_label, "Dec");
+			lv_label_set_text(s_key3_label, "Save");
+			lv_label_set_text(s_key4_label, "Back");
+		} else {
+			lv_label_set_text(s_key1_label, "Up");
+			lv_label_set_text(s_key2_label, "Down");
+			lv_label_set_text(s_key3_label, "Change");
+			lv_label_set_text(s_key4_label, "Home");
+		}
 		return;
 	}
 
-	lv_label_set_text(s_key1_label, "Set");
-	lv_label_set_text(s_key2_label, "Alm");
-	lv_label_set_text(s_key3_label, "Net");
-	lv_label_set_text(s_key4_label, "Home");
+	if (s_current_page == DISPLAY_PAGE_ALARM) {
+		if (s_alarm_view == ALARM_VIEW_LIST) {
+			lv_label_set_text(s_key1_label, "Up");
+			lv_label_set_text(s_key2_label, "Down");
+			lv_label_set_text(s_key3_label, "Select");
+			lv_label_set_text(s_key4_label, "Home");
+		} else if (s_alarm_view == ALARM_VIEW_ACTION) {
+			lv_label_set_text(s_key1_label, "Up");
+			lv_label_set_text(s_key2_label, "Down");
+			lv_label_set_text(s_key3_label, "Apply");
+			lv_label_set_text(s_key4_label, "Back");
+		} else if (s_alarm_view == ALARM_VIEW_DELETE_CONFIRM) {
+			lv_label_set_text(s_key1_label, "Cancel");
+			lv_label_set_text(s_key2_label, "");
+			lv_label_set_text(s_key3_label, "");
+			lv_label_set_text(s_key4_label, "Delete");
+		} else {
+			lv_label_set_text(s_key1_label, "Dec");
+			lv_label_set_text(s_key2_label, "Inc");
+			lv_label_set_text(s_key3_label, "Next");
+			lv_label_set_text(s_key4_label, "Cancel");
+		}
+		return;
+	}
+
+	if (s_current_page == DISPLAY_PAGE_NETWORK) {
+		if (s_network_selecting) {
+			lv_label_set_text(s_key1_label, "Up");
+			lv_label_set_text(s_key2_label, "Down");
+			lv_label_set_text(s_key3_label, "Apply");
+			lv_label_set_text(s_key4_label, "Back");
+		} else {
+			lv_label_set_text(s_key1_label, "Prev");
+			lv_label_set_text(s_key2_label, "Next");
+			lv_label_set_text(s_key3_label, "Select");
+			lv_label_set_text(s_key4_label, "Home");
+		}
+		return;
+	}
+
+	lv_label_set_text(s_key1_label, "Back");
+	lv_label_set_text(s_key2_label, "");
+	lv_label_set_text(s_key3_label, "");
+	lv_label_set_text(s_key4_label, "Confirm");
 }
 
 static void display_process_key_press(size_t key_index)
@@ -330,42 +635,339 @@ static void display_process_key_press(size_t key_index)
 	if (s_current_page == DISPLAY_PAGE_HOME) {
 		switch (key_index) {
 		case 0:
-			s_current_page = DISPLAY_PAGE_SETTINGS;
+			display_enter_page(DISPLAY_PAGE_SETTINGS);
 			break;
 		case 1:
-			s_current_page = DISPLAY_PAGE_ALARM;
+			display_enter_page(DISPLAY_PAGE_ALARM);
 			break;
 		case 2:
-			s_current_page = DISPLAY_PAGE_NETWORK;
+			display_enter_page(DISPLAY_PAGE_NETWORK);
 			break;
 		case 3:
-			s_current_page = DISPLAY_PAGE_POWER;
+			display_enter_page(DISPLAY_PAGE_POWER);
 			break;
 		default:
 			break;
+		}
+	} else if (s_current_page == DISPLAY_PAGE_SETTINGS) {
+		if (s_settings_editing) {
+			switch (key_index) {
+			case 0:
+				if (s_settings_focus == 2U && s_settings_edit_value < 10U) {
+					s_settings_edit_value++;
+				} else if (s_settings_focus == 3U && s_settings_edit_value < 9U) {
+					s_settings_edit_value++;
+				} else if (s_settings_focus == 4U && s_settings_edit_value < 9U) {
+					s_settings_edit_value++;
+				}
+				display_update_settings_page();
+				break;
+			case 1:
+				if (s_settings_focus == 2U && s_settings_edit_value > 0U) {
+					s_settings_edit_value--;
+				} else if (s_settings_focus == 3U && s_settings_edit_value > 1U) {
+					s_settings_edit_value--;
+				} else if (s_settings_focus == 4U && s_settings_edit_value > 0U) {
+					s_settings_edit_value--;
+				}
+				display_update_settings_page();
+				break;
+			case 2:
+				if (s_settings_focus == 2U) {
+					s_setting_volume = s_settings_edit_value;
+				} else if (s_settings_focus == 3U) {
+					s_setting_env_sample_s = s_settings_edit_value;
+				} else if (s_settings_focus == 4U) {
+					s_setting_repeat_count = s_settings_edit_value;
+				}
+				s_settings_editing = false;
+				display_update_settings_page();
+				break;
+			case 3:
+				s_settings_editing = false;
+				display_update_settings_page();
+				break;
+			default:
+				break;
+			}
+		} else {
+			switch (key_index) {
+			case 0:
+				s_settings_focus = (uint8_t)((s_settings_focus + 4U) % 5U);
+				display_update_settings_page();
+				break;
+			case 1:
+				s_settings_focus = (uint8_t)((s_settings_focus + 1U) % 5U);
+				display_update_settings_page();
+				break;
+			case 2:
+				if (s_settings_focus == 0U) {
+					s_setting_sound_on = !s_setting_sound_on;
+				} else if (s_settings_focus == 1U) {
+					s_setting_audio_on = !s_setting_audio_on;
+				} else {
+					s_settings_editing = true;
+					if (s_settings_focus == 2U) {
+						s_settings_edit_value = s_setting_volume;
+					} else if (s_settings_focus == 3U) {
+						s_settings_edit_value = s_setting_env_sample_s;
+					} else {
+						s_settings_edit_value = s_setting_repeat_count;
+					}
+				}
+				display_update_settings_page();
+				break;
+			case 3:
+				s_current_page = DISPLAY_PAGE_HOME;
+				break;
+			default:
+				break;
+			}
+		}
+	} else if (s_current_page == DISPLAY_PAGE_ALARM) {
+		if (s_alarm_view == ALARM_VIEW_LIST) {
+			const uint8_t item_count = (uint8_t)(s_alarm_count + 1U);
+			switch (key_index) {
+			case 0:
+				s_alarm_focus = (uint8_t)((s_alarm_focus + item_count - 1U) % item_count);
+				display_update_alarm_page();
+				break;
+			case 1:
+				s_alarm_focus = (uint8_t)((s_alarm_focus + 1U) % item_count);
+				display_update_alarm_page();
+				break;
+			case 2:
+				if (s_alarm_focus == 0U) {
+					s_alarm_view = ALARM_VIEW_EDIT;
+					s_alarm_edit_existing = false;
+					s_alarm_selected_index = s_alarm_count;
+					s_alarm_edit_field = 0;
+					s_alarm_edit_item = (display_alarm_item_t){
+						.hour = 7,
+						.minute = 30,
+						.second = 0,
+						.repeat = true,
+						.enabled = true,
+					};
+				} else {
+					s_alarm_selected_index = (uint8_t)(s_alarm_focus - 1U);
+					s_alarm_view = ALARM_VIEW_ACTION;
+					s_alarm_action_focus = ALARM_ACTION_EDIT;
+				}
+				display_update_alarm_page();
+				break;
+			case 3:
+				s_current_page = DISPLAY_PAGE_HOME;
+				break;
+			default:
+				break;
+			}
+		} else if (s_alarm_view == ALARM_VIEW_ACTION) {
+			switch (key_index) {
+			case 0:
+				s_alarm_action_focus = (alarm_action_t)((s_alarm_action_focus + 3U) % 4U);
+				display_update_alarm_page();
+				break;
+			case 1:
+				s_alarm_action_focus = (alarm_action_t)((s_alarm_action_focus + 1U) % 4U);
+				display_update_alarm_page();
+				break;
+			case 2:
+				if (s_alarm_selected_index >= s_alarm_count) {
+					break;
+				}
+				if (s_alarm_action_focus == ALARM_ACTION_EDIT) {
+					s_alarm_view = ALARM_VIEW_EDIT;
+					s_alarm_edit_existing = true;
+					s_alarm_edit_field = 0;
+					s_alarm_edit_item = s_alarm_items[s_alarm_selected_index];
+				} else if (s_alarm_action_focus == ALARM_ACTION_TOGGLE) {
+					s_alarm_items[s_alarm_selected_index].enabled = !s_alarm_items[s_alarm_selected_index].enabled;
+					s_alarm_view = ALARM_VIEW_LIST;
+					s_alarm_focus = (uint8_t)(s_alarm_selected_index + 1U);
+				} else if (s_alarm_action_focus == ALARM_ACTION_DELETE) {
+					s_alarm_view = ALARM_VIEW_DELETE_CONFIRM;
+				} else {
+					s_alarm_view = ALARM_VIEW_LIST;
+					s_alarm_focus = (uint8_t)(s_alarm_selected_index + 1U);
+				}
+				display_update_alarm_page();
+				break;
+			case 3:
+				s_alarm_view = ALARM_VIEW_LIST;
+				s_alarm_focus = (uint8_t)(s_alarm_selected_index + 1U);
+				display_update_alarm_page();
+				break;
+			default:
+				break;
+			}
+		} else if (s_alarm_view == ALARM_VIEW_DELETE_CONFIRM) {
+			if (key_index == 0U) {
+				s_alarm_view = ALARM_VIEW_ACTION;
+				display_update_alarm_page();
+			} else if (key_index == 3U) {
+				if (s_alarm_selected_index < s_alarm_count) {
+					for (uint8_t i = s_alarm_selected_index; (i + 1U) < s_alarm_count; i++) {
+						s_alarm_items[i] = s_alarm_items[i + 1U];
+					}
+					s_alarm_count--;
+				}
+				s_alarm_view = ALARM_VIEW_LIST;
+				if (s_alarm_focus > s_alarm_count) {
+					s_alarm_focus = s_alarm_count;
+				}
+				display_update_alarm_page();
+			}
+		} else {
+			switch (key_index) {
+			case 0:
+				if (s_alarm_edit_field == 0U) {
+					s_alarm_edit_item.hour = (uint8_t)((s_alarm_edit_item.hour + 23U) % 24U);
+				} else if (s_alarm_edit_field == 1U) {
+					s_alarm_edit_item.minute = (uint8_t)((s_alarm_edit_item.minute + 59U) % 60U);
+				} else if (s_alarm_edit_field == 2U) {
+					s_alarm_edit_item.second = (uint8_t)((s_alarm_edit_item.second + 59U) % 60U);
+				} else if (s_alarm_edit_field == 3U) {
+					s_alarm_edit_item.repeat = !s_alarm_edit_item.repeat;
+				} else {
+					s_alarm_edit_item.enabled = !s_alarm_edit_item.enabled;
+				}
+				display_update_alarm_page();
+				break;
+			case 1:
+				if (s_alarm_edit_field == 0U) {
+					s_alarm_edit_item.hour = (uint8_t)((s_alarm_edit_item.hour + 1U) % 24U);
+				} else if (s_alarm_edit_field == 1U) {
+					s_alarm_edit_item.minute = (uint8_t)((s_alarm_edit_item.minute + 1U) % 60U);
+				} else if (s_alarm_edit_field == 2U) {
+					s_alarm_edit_item.second = (uint8_t)((s_alarm_edit_item.second + 1U) % 60U);
+				} else if (s_alarm_edit_field == 3U) {
+					s_alarm_edit_item.repeat = !s_alarm_edit_item.repeat;
+				} else {
+					s_alarm_edit_item.enabled = !s_alarm_edit_item.enabled;
+				}
+				display_update_alarm_page();
+				break;
+			case 2:
+				if (s_alarm_edit_field < 4U) {
+					s_alarm_edit_field++;
+					display_update_alarm_page();
+				} else {
+					if (s_alarm_edit_existing && s_alarm_selected_index < s_alarm_count) {
+						s_alarm_items[s_alarm_selected_index] = s_alarm_edit_item;
+						s_alarm_focus = (uint8_t)(s_alarm_selected_index + 1U);
+					} else if (!s_alarm_edit_existing && s_alarm_count < 4U) {
+						s_alarm_items[s_alarm_count] = s_alarm_edit_item;
+						s_alarm_count++;
+						s_alarm_focus = s_alarm_count;
+					}
+					s_alarm_view = ALARM_VIEW_LIST;
+					display_update_alarm_page();
+				}
+				break;
+			case 3:
+				if (s_alarm_edit_existing) {
+					s_alarm_view = ALARM_VIEW_ACTION;
+				} else {
+					s_alarm_view = ALARM_VIEW_LIST;
+					s_alarm_focus = 0;
+				}
+				display_update_alarm_page();
+				break;
+			default:
+				break;
+			}
+		}
+	} else if (s_current_page == DISPLAY_PAGE_NETWORK) {
+		if (s_network_selecting) {
+			if (s_network_focus == 1U) {
+				switch (key_index) {
+				case 0:
+					s_network_action_focus = (uint8_t)((s_network_action_focus + 1U) % 2U);
+					display_update_network_page();
+					break;
+				case 1:
+					s_network_action_focus = (uint8_t)((s_network_action_focus + 1U) % 2U);
+					display_update_network_page();
+					break;
+				case 2:
+					if (s_network_action_focus == 0U) {
+						(void)net_service_request_scan();
+						s_network_focus = 2U;
+						s_network_selecting = true;
+						s_network_scan_focus = 0;
+					} else {
+						s_network_selecting = false;
+					}
+					display_update_network_page();
+					break;
+				case 3:
+					s_network_selecting = false;
+					display_update_network_page();
+					break;
+				default:
+					break;
+				}
+			} else if (s_network_focus == 2U) {
+				app_net_scan_snapshot_t scan_snapshot = { 0 };
+				(void)net_service_get_scan_snapshot(&scan_snapshot);
+				switch (key_index) {
+				case 0:
+					if (scan_snapshot.count > 0U) {
+						s_network_scan_focus = (uint8_t)((s_network_scan_focus + scan_snapshot.count - 1U) % scan_snapshot.count);
+						display_update_network_page();
+					}
+					break;
+				case 1:
+					if (scan_snapshot.count > 0U) {
+						s_network_scan_focus = (uint8_t)((s_network_scan_focus + 1U) % scan_snapshot.count);
+						display_update_network_page();
+					}
+					break;
+				case 2:
+					display_update_network_page();
+					break;
+				case 3:
+					s_network_selecting = false;
+					display_update_network_page();
+					break;
+				default:
+					break;
+				}
+			} else if (key_index == 3U) {
+				s_network_selecting = false;
+				display_update_network_page();
+			}
+		} else {
+			switch (key_index) {
+			case 0:
+				s_network_focus = (uint8_t)((s_network_focus + 3U) % 4U);
+				display_update_network_page();
+				break;
+			case 1:
+				s_network_focus = (uint8_t)((s_network_focus + 1U) % 4U);
+				display_update_network_page();
+				break;
+			case 2:
+				if (s_network_focus == 1U || s_network_focus == 2U) {
+					s_network_selecting = true;
+				}
+				display_update_network_page();
+				break;
+			case 3:
+				s_current_page = DISPLAY_PAGE_HOME;
+				break;
+			default:
+				break;
+			}
 		}
 	} else if (s_current_page == DISPLAY_PAGE_POWER) {
 		if (key_index == 0U) {
 			s_current_page = DISPLAY_PAGE_HOME;
 		} else if (key_index == 3U && s_power_body_label != NULL) {
-			lv_label_set_text(s_power_body_label, "Power off confirmed.\nHW action not wired yet.");
-		}
-	} else {
-		switch (key_index) {
-		case 0:
-			s_current_page = DISPLAY_PAGE_SETTINGS;
-			break;
-		case 1:
-			s_current_page = DISPLAY_PAGE_ALARM;
-			break;
-		case 2:
-			s_current_page = DISPLAY_PAGE_NETWORK;
-			break;
-		case 3:
-			s_current_page = DISPLAY_PAGE_HOME;
-			break;
-		default:
-			break;
+			snprintf(s_power_body_text, sizeof(s_power_body_text),
+				"Power off confirmed.\nHW action not wired yet.");
+			lv_label_set_text(s_power_body_label, s_power_body_text);
 		}
 	}
 
@@ -543,14 +1145,10 @@ static void display_build_boot_screen(void)
 	lv_obj_align(s_key4_label, LV_ALIGN_LEFT_MID, 164, 0);
 	lv_label_set_text(s_key4_label, "Pwr");
 
-	build_subpage_container(&s_settings_page, &s_settings_body_label, screen, "SETTINGS",
-		"SOUND      ON\nAUDIO      OFF\nVOLUME     6\nENV SAMPLE 1s\nREPEAT     2");
-	build_subpage_container(&s_alarm_page, &s_alarm_body_label, screen, "ALARM",
-		"+ NEW ALARM\n07:30  REPEAT\n08:00  DAILY\n20:15  ONCE\n\nDETAIL 07:30\nSTATE  ENABLED");
-	build_subpage_container(&s_network_page, &s_network_body_label, screen, "NETWORK",
-		"WIFI  Connected\nSSID  Home-2.4G\nIP    192.168.1.72\n\nSCAN  Home/Office/Lab\nSYNC  TIME OK");
-	build_subpage_container(&s_power_page, &s_power_body_label, screen, "POWER OFF?",
-		"Press K4 to confirm.");
+	build_subpage_container(&s_settings_page, &s_settings_body_label, screen, "SETTINGS", "");
+	build_subpage_container(&s_alarm_page, &s_alarm_body_label, screen, "ALARM", "");
+	build_subpage_container(&s_network_page, &s_network_body_label, screen, "NETWORK", "");
+	build_subpage_container(&s_power_page, &s_power_body_label, screen, "POWER OFF?", "");
 	set_obj_hidden(s_settings_page, true);
 	set_obj_hidden(s_alarm_page, true);
 	set_obj_hidden(s_network_page, true);
@@ -563,6 +1161,19 @@ static void display_build_boot_screen(void)
 	s_last_temp_text[0] = '\0';
 	s_last_humi_text[0] = '\0';
 	s_last_lux_text[0] = '\0';
+	s_setting_sound_on = true;
+	s_setting_audio_on = false;
+	s_setting_volume = 6;
+	s_setting_env_sample_s = 1;
+	s_setting_repeat_count = 2;
+	s_alarm_items[0] = (display_alarm_item_t){ .hour = 7, .minute = 30, .second = 0, .repeat = true, .enabled = true };
+	s_alarm_items[1] = (display_alarm_item_t){ .hour = 8, .minute = 0, .second = 0, .repeat = true, .enabled = true };
+	s_alarm_items[2] = (display_alarm_item_t){ .hour = 20, .minute = 15, .second = 0, .repeat = false, .enabled = true };
+	s_alarm_count = 3;
+	display_reset_subpage_state(DISPLAY_PAGE_SETTINGS);
+	display_reset_subpage_state(DISPLAY_PAGE_ALARM);
+	display_reset_subpage_state(DISPLAY_PAGE_NETWORK);
+	display_reset_subpage_state(DISPLAY_PAGE_POWER);
 
 	display_apply_page_state();
 }
@@ -587,6 +1198,8 @@ static void display_update_labels(void)
 		system_time_valid ? "" : "UNSYNC");
 	set_label_text_if_changed(s_presence_label, s_last_presence_text, sizeof(s_last_presence_text),
 		detected ? "DETECTED" : "");
+	lv_label_set_text(s_sound_label, s_setting_sound_on ? "SND ON" : "SND OFF");
+	lv_label_set_text(s_audio_label, s_setting_audio_on ? "AUD ON" : "AUD OFF");
 
 	if (environment_service_get_snapshot(&snapshot)) {
 		snprintf(env_buf, sizeof(env_buf), "T-%s%.0fC",
@@ -652,7 +1265,9 @@ int display_service_init(void)
 	};
 
 	esp_err_t err = spi_bus_initialize(APP_LCD_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO);
-	if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+	if (err == ESP_OK) {
+		s_spi_bus_owned = true;
+	} else if (err != ESP_ERR_INVALID_STATE) {
 		ESP_LOGE(TAG, "spi_bus_initialize failed: %s", esp_err_to_name(err));
 		return (int)err;
 	}
@@ -660,7 +1275,7 @@ int display_service_init(void)
 	err = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)APP_LCD_SPI_HOST, &io_config, &s_panel_io);
 	if (err != ESP_OK) {
 		ESP_LOGE(TAG, "esp_lcd_new_panel_io_spi failed: %s", esp_err_to_name(err));
-		return (int)err;
+		goto fail;
 	}
 
 	const esp_lcd_panel_dev_config_t panel_config = {
@@ -672,60 +1287,66 @@ int display_service_init(void)
 	err = esp_lcd_new_panel_st7789(s_panel_io, &panel_config, &s_panel);
 	if (err != ESP_OK) {
 		ESP_LOGE(TAG, "esp_lcd_new_panel_st7789 failed: %s", esp_err_to_name(err));
-		return (int)err;
+		goto fail;
 	}
 
 	err = esp_lcd_panel_reset(s_panel);
 	if (err != ESP_OK) {
 		ESP_LOGE(TAG, "esp_lcd_panel_reset failed: %s", esp_err_to_name(err));
-		return (int)err;
+		goto fail;
 	}
 
 	err = esp_lcd_panel_init(s_panel);
 	if (err != ESP_OK) {
 		ESP_LOGE(TAG, "esp_lcd_panel_init failed: %s", esp_err_to_name(err));
-		return (int)err;
+		goto fail;
 	}
 
 	err = esp_lcd_panel_invert_color(s_panel, true);
 	if (err != ESP_OK) {
 		ESP_LOGE(TAG, "esp_lcd_panel_invert_color failed: %s", esp_err_to_name(err));
-		return (int)err;
+		goto fail;
 	}
 
 	err = esp_lcd_panel_swap_xy(s_panel, false);
 	if (err != ESP_OK) {
 		ESP_LOGE(TAG, "esp_lcd_panel_swap_xy failed: %s", esp_err_to_name(err));
-		return (int)err;
+		goto fail;
 	}
 
 	err = esp_lcd_panel_mirror(s_panel, false, false);
 	if (err != ESP_OK) {
 		ESP_LOGE(TAG, "esp_lcd_panel_mirror failed: %s", esp_err_to_name(err));
-		return (int)err;
+		goto fail;
 	}
 
 	err = esp_lcd_panel_set_gap(s_panel, APP_LCD_X_GAP, APP_LCD_Y_GAP);
 	if (err != ESP_OK) {
 		ESP_LOGE(TAG, "esp_lcd_panel_set_gap failed: %s", esp_err_to_name(err));
-		return (int)err;
+		goto fail;
 	}
 
 	err = esp_lcd_panel_disp_on_off(s_panel, true);
 	if (err != ESP_OK) {
 		ESP_LOGE(TAG, "esp_lcd_panel_disp_on_off failed: %s", esp_err_to_name(err));
-		return (int)err;
+		goto fail;
 	}
 
 	lv_init();
 	s_lvgl_mutex = xSemaphoreCreateMutex();
 	if (s_lvgl_mutex == NULL) {
 		ESP_LOGE(TAG, "failed to create lvgl mutex");
-		return -1;
+		err = ESP_ERR_NO_MEM;
+		goto fail;
 	}
 
 #if LVGL_VERSION_MAJOR >= 9
 	s_lvgl_display = lv_display_create(APP_LCD_WIDTH, APP_LCD_HEIGHT);
+	if (s_lvgl_display == NULL) {
+		ESP_LOGE(TAG, "lv_display_create failed");
+		err = ESP_ERR_NO_MEM;
+		goto fail;
+	}
 	lv_display_set_buffers(s_lvgl_display, s_lvgl_buf1, s_lvgl_buf2,
 		sizeof(s_lvgl_buf1), LV_DISPLAY_RENDER_MODE_PARTIAL);
 	lv_display_set_flush_cb(s_lvgl_display, lvgl_flush_cb);
@@ -739,6 +1360,11 @@ int display_service_init(void)
 	s_lvgl_drv.draw_buf = &s_lvgl_draw_buf;
 	s_lvgl_drv.user_data = s_panel;
 	s_lvgl_display = lv_disp_drv_register(&s_lvgl_drv);
+	if (s_lvgl_display == NULL) {
+		ESP_LOGE(TAG, "lv_disp_drv_register failed");
+		err = ESP_ERR_NO_MEM;
+		goto fail;
+	}
 #endif
 
 	const esp_timer_create_args_t tick_timer_args = {
@@ -748,13 +1374,20 @@ int display_service_init(void)
 	err = esp_timer_create(&tick_timer_args, &s_lvgl_tick_timer);
 	if (err != ESP_OK) {
 		ESP_LOGE(TAG, "esp_timer_create failed: %s", esp_err_to_name(err));
-		return (int)err;
+		goto fail;
 	}
 
 	err = esp_timer_start_periodic(s_lvgl_tick_timer, 2000);
 	if (err != ESP_OK) {
 		ESP_LOGE(TAG, "esp_timer_start_periodic failed: %s", esp_err_to_name(err));
-		return (int)err;
+		goto fail;
+	}
+
+	s_key_event_queue = xQueueCreate(8, sizeof(size_t));
+	if (s_key_event_queue == NULL) {
+		ESP_LOGE(TAG, "failed to create display key queue");
+		err = ESP_ERR_NO_MEM;
+		goto fail;
 	}
 
 	if (xSemaphoreTake(s_lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -764,13 +1397,12 @@ int display_service_init(void)
 	}
 
 	s_ready = true;
-	s_key_event_queue = xQueueCreate(8, sizeof(size_t));
-	if (s_key_event_queue == NULL) {
-		ESP_LOGE(TAG, "failed to create display key queue");
-		return -1;
-	}
 	ESP_LOGI(TAG, "init lcd %dx%d", APP_LCD_WIDTH, APP_LCD_HEIGHT);
 	return 0;
+
+fail:
+	(void)display_service_stop();
+	return (int)err;
 }
 
 int display_service_start(void)
@@ -786,10 +1418,6 @@ int display_service_start(void)
 
 int display_service_stop(void)
 {
-	if (!s_ready) {
-		return 0;
-	}
-
 	if (s_lvgl_task != NULL) {
 		vTaskDelete(s_lvgl_task);
 		s_lvgl_task = NULL;
@@ -801,18 +1429,18 @@ int display_service_stop(void)
 		s_lvgl_tick_timer = NULL;
 	}
 
-	if (s_lvgl_mutex != NULL) {
-		vSemaphoreDelete(s_lvgl_mutex);
-		s_lvgl_mutex = NULL;
-	}
-
 	if (s_key_event_queue != NULL) {
 		vQueueDelete(s_key_event_queue);
 		s_key_event_queue = NULL;
 	}
 
-	(void)esp_lcd_panel_disp_on_off(s_panel, false);
+	if (s_lvgl_mutex != NULL) {
+		vSemaphoreDelete(s_lvgl_mutex);
+		s_lvgl_mutex = NULL;
+	}
+
 	if (s_panel != NULL) {
+		(void)esp_lcd_panel_disp_on_off(s_panel, false);
 		(void)esp_lcd_panel_del(s_panel);
 		s_panel = NULL;
 	}
@@ -820,7 +1448,11 @@ int display_service_stop(void)
 		(void)esp_lcd_panel_io_del(s_panel_io);
 		s_panel_io = NULL;
 	}
-	(void)spi_bus_free(APP_LCD_SPI_HOST);
+	if (s_spi_bus_owned) {
+		(void)spi_bus_free(APP_LCD_SPI_HOST);
+		s_spi_bus_owned = false;
+	}
+
 	s_ready = false;
 	return 0;
 }
