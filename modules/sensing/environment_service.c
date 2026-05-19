@@ -3,11 +3,11 @@
 #include <app/hw_config.h>
 #include <app/module_common.h>
 
+#include <dht.h>
 #include <driver/gpio.h>
 #include <driver/i2c_master.h>
 #include <esp_err.h>
 #include <esp_log.h>
-#include <esp_rom_sys.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -21,7 +21,6 @@ static TaskHandle_t s_env_task;
 static app_environment_snapshot_t s_snapshot;
 static SemaphoreHandle_t s_snapshot_mutex;
 static uint32_t s_dht11_fail_streak;
-static portMUX_TYPE s_dht11_lock = portMUX_INITIALIZER_UNLOCKED;
 
 typedef struct {
 	const char *name;
@@ -39,89 +38,6 @@ typedef struct {
 } dht11_provider_cache_t;
 
 static dht11_provider_cache_t s_dht11_cache;
-
-static int dht11_wait_for_level(int expected_level, int timeout_us)
-{
-	const int64_t start = esp_timer_get_time();
-
-	while (gpio_get_level(APP_PIN_DHT11_DATA) != expected_level) {
-		if ((esp_timer_get_time() - start) > timeout_us) {
-			return -1;
-		}
-		esp_rom_delay_us(1);
-	}
-
-	return 0;
-}
-
-static int dht11_read_raw(float *temperature_c, float *humidity_percent)
-{
-	uint8_t data[5] = { 0 };
-	int ret = 0;
-
-	if (temperature_c == NULL || humidity_percent == NULL) {
-		return -1;
-	}
-
-	gpio_set_direction(APP_PIN_DHT11_DATA, GPIO_MODE_OUTPUT_OD);
-	gpio_set_level(APP_PIN_DHT11_DATA, 0);
-	vTaskDelay(pdMS_TO_TICKS(20));
-	gpio_set_level(APP_PIN_DHT11_DATA, 1);
-	esp_rom_delay_us(40);
-
-	taskENTER_CRITICAL(&s_dht11_lock);
-	gpio_set_direction(APP_PIN_DHT11_DATA, GPIO_MODE_INPUT);
-	gpio_pullup_en(APP_PIN_DHT11_DATA);
-
-	if (dht11_wait_for_level(0, 100) != 0) {
-		ret = -1;
-		goto done;
-	}
-	if (dht11_wait_for_level(1, 100) != 0) {
-		ret = -1;
-		goto done;
-	}
-	if (dht11_wait_for_level(0, 100) != 0) {
-		ret = -1;
-		goto done;
-	}
-
-	for (int bit = 0; bit < 40; bit++) {
-		if (dht11_wait_for_level(1, 70) != 0) {
-			ret = -1;
-			goto done;
-		}
-
-		const int64_t high_start = esp_timer_get_time();
-		if (dht11_wait_for_level(0, 100) != 0) {
-			ret = -1;
-			goto done;
-		}
-
-		const int64_t high_time = esp_timer_get_time() - high_start;
-		data[bit / 8] <<= 1;
-		if (high_time > 40) {
-			data[bit / 8] |= 1U;
-		}
-	}
-
-done:
-	taskEXIT_CRITICAL(&s_dht11_lock);
-	gpio_pullup_en(APP_PIN_DHT11_DATA);
-
-	if (ret != 0) {
-		return ret;
-	}
-
-	const uint8_t checksum = (uint8_t)(data[0] + data[1] + data[2] + data[3]);
-	if (checksum != data[4]) {
-		return -2;
-	}
-
-	*humidity_percent = (float)data[0] + ((float)data[1] / 10.0f);
-	*temperature_c = (float)data[2] + ((float)data[3] / 10.0f);
-	return 0;
-}
 
 static int dht11_provider_init(void)
 {
@@ -148,8 +64,12 @@ static int dht11_provider_read(float *temperature_c, float *humidity_percent)
 	}
 
 	s_dht11_cache.last_attempt_us = now_us;
-	const int ret = dht11_read_raw(temperature_c, humidity_percent);
-	if (ret == 0) {
+	const esp_err_t err = dht_read_float_data(
+		DHT_TYPE_DHT11,
+		(gpio_num_t)APP_PIN_DHT11_DATA,
+		humidity_percent,
+		temperature_c);
+	if (err == ESP_OK) {
 		s_dht11_cache.valid = true;
 		s_dht11_cache.temperature_c = *temperature_c;
 		s_dht11_cache.humidity_percent = *humidity_percent;
@@ -163,7 +83,7 @@ static int dht11_provider_read(float *temperature_c, float *humidity_percent)
 		return 1;
 	}
 
-	return ret;
+	return -(int)err;
 }
 
 static void dht11_provider_deinit(void)
@@ -229,6 +149,9 @@ static void environment_task(void *arg)
 		}
 
 		if (temp_humi_ret >= 0) {
+			if (temp_humi_ret == 0 && s_dht11_fail_streak > 0U) {
+				ESP_LOGI(TAG, "dht11 recovered after %" PRIu32 " failures", s_dht11_fail_streak);
+			}
 			s_snapshot.dht11_valid = true;
 			s_snapshot.temperature_c = temperature_c;
 			s_snapshot.humidity_percent = humidity_percent;
@@ -239,8 +162,10 @@ static void environment_task(void *arg)
 			s_snapshot.dht11_valid = false;
 			s_dht11_fail_streak++;
 			if (s_dht11_fail_streak == 1U || (s_dht11_fail_streak % 10U) == 0U) {
-				ESP_LOGW(TAG, "%s read failed: %d (streak=%" PRIu32 ")",
-					s_temp_humidity_provider->name, temp_humi_ret, s_dht11_fail_streak);
+				ESP_LOGW(TAG,
+					"dht11 read failed: %d, gpio=%d level=%d streak=%" PRIu32,
+					temp_humi_ret, APP_PIN_DHT11_DATA,
+					gpio_get_level(APP_PIN_DHT11_DATA), s_dht11_fail_streak);
 			}
 		}
 
@@ -254,7 +179,7 @@ static void environment_task(void *arg)
 			s_snapshot.humidity_percent,
 			s_snapshot.bh1750_valid ? 1 : 0,
 			s_snapshot.dht11_valid ? 1 : 0);
-		vTaskDelay(pdMS_TO_TICKS(1000));
+		vTaskDelay(pdMS_TO_TICKS(2000));
 	}
 }
 
@@ -311,7 +236,7 @@ int environment_service_init(void)
 		return -1;
 	}
 
-	ESP_LOGI(TAG, "init bh1750 sda=%d scl=%d addr=0x%02X temp_humi=%s gpio=%d",
+	ESP_LOGI(TAG, "init bh1750 sda=%d scl=%d addr=0x%02X temp_humi=%s gpio=%d dht_driver=dht.h sample_ms=2000",
 		APP_PIN_BH1750_SDA, APP_PIN_BH1750_SCL, APP_BH1750_I2C_ADDR,
 		s_temp_humidity_provider->name, APP_PIN_DHT11_DATA);
 	return 0;
