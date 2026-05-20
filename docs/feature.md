@@ -3,7 +3,7 @@
 ## 平台约束 (Platform Constraints)
 
 1. 本文档默认软件平台为 `ESP-IDF on ESP32-S3`，系统时间依赖联网后的首次校时建立有效时间基线，不假定芯片内置 RTC 具备断电后持续保时能力。
-2. 所有基于绝对时间的功能，包括时间显示、定时报时、闹钟触发和代办提醒，在首次校时成功前仅允许配置，不允许激活触发。
+2. 所有基于绝对时间的功能，包括时间显示、闹钟触发和代办提醒，在首次校时成功前仅允许配置，不允许激活触发。
 3. 本文档将低功耗待机的默认策略限定为“亮屏业务态”和“息屏/极简显示 + light sleep 候选态”两级，不默认把 deep sleep 作为日常待机路径。
 4. 若后续规格要求引入 deep sleep、掉电后继续走时或统一 RTC 标准 API，应在 `spec` 阶段显式补充外置 RTC、唤醒源和时间恢复机制。
 
@@ -85,13 +85,6 @@
 | :--- | :--- | :--- | :--- |
 | `系统事件 (System Event)` | 温度、湿度或光照判定为过高、过低或超出舒适区间 | **前置状态 (Pre-condition):** 环境缓存有效，语音提示开关已启用<br>**动作 (Action):** 播报对应建议，例如开灯、关灯、开窗、保暖或开启空调，并启动 1 至 3 分钟冷却窗口。 | **条件 (Condition):** 同类环境提示仍处于冷却窗口，或对应语音提示被用户关闭<br>**动作 (Action):** 抑制本次播报，仅保留环境异常状态用于显示。 |
 
-### Feature (功能): F10_TimedVoiceAnnouncement
-**功能概述 (Feature Overview):** 设备在用户设定的整点或指定时刻进行语音报时；该功能仅在系统已建立有效时间基线时生效。
-
-| 触发类型 (Trigger Type) | 触发条件描述 (Trigger Description) | 预期响应 (Expected Response) | 例外处理 (Exception Handling) |
-| :--- | :--- | :--- | :--- |
-| `系统事件 (System Event)` | 系统时间基线到达用户预设的报时点 | **前置状态 (Pre-condition):** 系统时间已经完成首次校时，定时播报功能已启用<br>**动作 (Action):** 播报当前时间，并记录本次播报已经完成。 | **条件 (Condition):** 当前音频通道繁忙、本报时点已经在当前周期播报过，或系统尚未完成首次校时<br>**动作 (Action):** 将本次报时加入语音调度队列；若时间无效，则跳过本次报时并等待时间同步成功。 |
-
 ### Feature (功能): F11_RestReminder
 **功能概述 (Feature Overview):** 用户连续在位达到 4 小时后，系统提醒其注意休息，并限制重复打扰频率。
 
@@ -104,7 +97,7 @@
 
 | 触发类型 (Trigger Type) | 触发条件描述 (Trigger Description) | 预期响应 (Expected Response) | 例外处理 (Exception Handling) |
 | :--- | :--- | :--- | :--- |
-| `系统事件 (System Event)` | 问候、环境提示、定时播报、休息提醒、闹钟提醒或代办提醒在同一时间窗口同时触发 | **前置状态 (Pre-condition):** 语音调度器已启动，音频输出链路可用<br>**动作 (Action):** 按“问候语、环境提示、定时播报、休息提醒、闹钟/代办提醒”的优先级顺序逐个播报。 | **条件 (Condition):** 语音请求同时抢占同一 I2S 音频输出资源<br>**动作 (Action):** **与[F08_PresenceGreetingVoice、F09_EnvironmentVoicePrompt、F10_TimedVoiceAnnouncement、F11_RestReminder、F14_AlarmTriggerAndReminder、F16_TodoVoiceReminder]存在并发冲突，需要增加并发保护机制。** |
+| `系统事件 (System Event)` | 问候、环境提示、休息提醒、闹钟提醒或代办提醒在同一时间窗口同时触发 | **前置状态 (Pre-condition):** 语音调度器已启动，音频输出链路可用<br>**动作 (Action):** 按“问候语、环境提示、休息提醒、闹钟/代办提醒”的优先级顺序逐个播报。 | **条件 (Condition):** 语音请求同时抢占同一 I2S 音频输出资源<br>**动作 (Action):** **与[F08_PresenceGreetingVoice、F09_EnvironmentVoicePrompt、F11_RestReminder、F14_AlarmTriggerAndReminder、F16_TodoVoiceReminder]存在并发冲突，需要增加并发保护机制。** |
 
 ## 模块类别 (Module Category): 闹钟与代办事项
 

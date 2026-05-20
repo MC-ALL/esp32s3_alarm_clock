@@ -2,325 +2,385 @@
 
 ## 1. 文档范围
 - 屏幕规格：`240x320` 竖屏
-- 文档内容：静态页面结构、页面元素、按键功能标注
-- 页面集合：正常显示首页、极简显示页、设置页、闹钟页（列表态）、闹钟页（新建选择页）、网络页、关机确认页
+- 文档内容：当前固件版本下的页面结构、页面作用、交互状态、按键功能
+- 以**实际代码实现**为准，不保留已废弃的旧交互方案
 
 ---
 
-## 2. 页面总览（静态缩略）
+## 2. 页面总览
+当前 UI 由以下页面或显示状态组成：
 
-### 2.1 正常显示首页
-<div style="width:240px;height:320px;background:#000;color:#fff;border:1px solid #555;box-sizing:border-box;padding:8px;font-family:monospace;display:flex;flex-direction:column;gap:6px;">
-  <div style="display:flex;gap:6px;height:76px;">
-    <div style="flex:1;border:1px solid #444;padding:4px;display:flex;flex-direction:column;justify-content:center;">
-      <div style="font-size:11px;color:#79a7ff;">2026-05-15 FRI</div>
-      <div style="font-size:36px;line-height:1;">19:30<span style="font-size:18px;">:08</span></div>
-    </div>
-    <div style="width:74px;border:1px solid #444;padding:4px;display:flex;flex-direction:column;justify-content:center;gap:4px;font-size:12px;">
-      <div style="display:flex;justify-content:space-between;"><span>声音</span><span>ON</span></div>
-      <div style="display:flex;justify-content:space-between;"><span>语音</span><span>OFF</span></div>
-    </div>
-  </div>
-  <div style="height:24px;border:1px solid #444;font-size:12px;display:flex;align-items:center;justify-content:space-around;">
-    <span style="color:#ffab40;">温 26C</span><span style="color:#86d3ff;">湿 58%</span><span style="color:#ffd54f;">光 320</span>
-  </div>
-  <div style="height:24px;border:1px solid #444;padding:4px;font-size:12px;display:flex;align-items:center;gap:6px;">
-    <span style="color:#bdbdbd;">Tips</span>
-    <span>环境光偏低，建议开灯</span>
-  </div>
-  <div style="height:24px;border:1px solid #444;padding:4px;display:flex;justify-content:space-between;align-items:center;">
-    <div style="display:flex;align-items:center;gap:6px;"><span style="color:#bdbdbd;font-size:12px;">闹钟</span><span style="font-size:16px;line-height:1;">07:30</span></div>
-    <div style="font-size:11px;color:#bdbdbd;">REPEAT</div>
-  </div>
-  <div style="flex:1;border:1px solid #444;padding:4px;font-size:12px;display:flex;flex-direction:column;gap:2px;">
-    <div style="color:#bdbdbd;">Todo List</div>
-    <div>1. 取快递</div>
-    <div>2. 提交周报</div>
-    <div style="color:#9e9e9e;">+4</div>
-  </div>
-  <div style="height:22px;border:1px solid #444;font-size:12px;display:grid;grid-template-columns:repeat(4,1fr);text-align:center;align-items:center;">
-    <span>设置</span><span>闹钟</span><span>网络</span><span>关机</span>
-  </div>
-</div>
+1. 正常首页 `HOME`
+2. 极简显示状态 `MINIMAL`
+3. 设置页 `SETTINGS`
+4. 闹钟页 `ALARM`
+5. 网络页 `NETWORK`
+6. 关机确认页 `POWER`
+7. 闹钟响铃页
 
-### 2.2 极简显示页
-<div style="width:240px;height:320px;background:#000;color:#fff;border:1px solid #555;box-sizing:border-box;font-family:monospace;display:flex;align-items:center;justify-content:center;">
-  <div style="font-size:56px;line-height:1;">19:30</div>
-</div>
-
-### 2.3 设置页
-<div style="width:240px;height:320px;background:#000;color:#fff;border:1px solid #555;box-sizing:border-box;padding:8px;font-family:monospace;display:flex;flex-direction:column;gap:6px;">
-  <div style="height:28px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:18px;">设置</div>
-  <div style="flex:1;border:1px solid #444;padding:4px;display:flex;flex-direction:column;gap:4px;font-size:14px;">
-    <div style="border:1px solid #777;padding:4px;display:flex;justify-content:space-between;background:#111;"><span>SOUND</span><span>ON</span></div>
-    <div style="border:1px solid #444;padding:4px;display:flex;justify-content:space-between;"><span>AUDIO</span><span>OFF</span></div>
-    <div style="border:1px solid #444;padding:4px;display:flex;justify-content:space-between;"><span>VOLUME</span><span>6</span></div>
-    <div style="border:1px solid #444;padding:4px;display:flex;justify-content:space-between;"><span>ENV SAMPLE</span><span>5s</span></div>
-    <div style="border:1px solid #444;padding:4px;display:flex;justify-content:space-between;"><span>REPEAT</span><span>2</span></div>
-  </div>
-  <div style="height:22px;border:1px solid #444;font-size:12px;display:grid;grid-template-columns:repeat(4,1fr);text-align:center;align-items:center;">
-    <span>上移</span><span>下移</span><span>选择</span><span>返回</span>
-  </div>
-</div>
-
-### 2.4 闹钟页（列表态）
-<div style="width:240px;height:320px;background:#000;color:#fff;border:1px solid #555;box-sizing:border-box;padding:8px;font-family:monospace;display:flex;flex-direction:column;gap:6px;">
-  <div style="height:28px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:18px;">闹钟</div>
-  <div style="flex:1;display:grid;grid-template-columns:110px 1fr;gap:6px;">
-    <div style="border:1px solid #444;padding:4px;display:flex;flex-direction:column;gap:3px;font-size:13px;">
-      <div style="border:1px solid #777;background:#111;padding:3px;">+ 新建闹钟</div>
-      <div style="border:1px solid #444;padding:3px;">07:30 MON WED FRI</div>
-      <div style="border:1px solid #444;padding:3px;">08:00 DAILY</div>
-      <div style="border:1px solid #444;padding:3px;">20:15 ONCE</div>
-    </div>
-    <div style="border:1px solid #444;padding:6px;display:flex;flex-direction:column;justify-content:space-between;">
-      <div style="font-size:12px;color:#bdbdbd;">详情</div>
-      <div style="font-size:28px;line-height:1;">07:30</div>
-      <div style="font-size:12px;">MON WED FRI</div>
-      <div style="font-size:12px;">REPEAT / ENABLED</div>
-    </div>
-  </div>
-  <div style="height:22px;border:1px solid #444;font-size:12px;display:grid;grid-template-columns:repeat(4,1fr);text-align:center;align-items:center;">
-    <span>上移</span><span>下移</span><span>选择</span><span>返回</span>
-  </div>
-</div>
-
-### 2.5 闹钟页（新建闹钟选择页）
-<div style="width:240px;height:320px;background:#000;color:#fff;border:1px solid #555;box-sizing:border-box;padding:8px;font-family:monospace;display:flex;flex-direction:column;gap:6px;">
-  <div style="height:28px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:18px;">闹钟新建</div>
-  <div style="flex:1;border:1px solid #444;padding:4px;display:flex;flex-direction:column;gap:3px;font-size:13px;">
-    <div style="border:1px solid #777;background:#111;padding:3px;display:flex;justify-content:space-between;"><span>时</span><span>08</span></div>
-    <div style="border:1px solid #444;padding:3px;display:flex;justify-content:space-between;"><span>分</span><span>00</span></div>
-    <div style="border:1px solid #444;padding:3px;display:flex;justify-content:space-between;"><span>秒</span><span>00</span></div>
-    <div style="border:1px solid #444;padding:3px;display:flex;justify-content:space-between;"><span>星期方案</span><span>工作日</span></div>
-    <div style="border:1px solid #444;padding:3px;display:flex;justify-content:space-between;"><span>重复</span><span>ON</span></div>
-    <div style="border:1px solid #444;padding:3px;display:flex;justify-content:space-between;"><span>启用</span><span>ON</span></div>
-  </div>
-  <div style="height:22px;border:1px solid #444;font-size:12px;display:grid;grid-template-columns:repeat(4,1fr);text-align:center;align-items:center;">
-    <span>上移</span><span>下移</span><span>选择</span><span>返回</span>
-  </div>
-</div>
-
-### 2.6 网络页（模块选择态）
-<div style="width:240px;height:320px;background:#000;color:#fff;border:1px solid #555;box-sizing:border-box;padding:8px;font-family:monospace;display:flex;flex-direction:column;gap:6px;">
-  <div style="height:28px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:18px;">网络</div>
-  <div style="height:250px;display:flex;flex-direction:column;gap:6px;">
-    <div style="height:108px;display:flex;gap:6px;">
-      <div style="width:109px;border:1px solid #777;background:#111;padding:3px;font-size:11px;display:flex;flex-direction:column;gap:2px;line-height:1.1;">
-        <div style="color:#bdbdbd;">WiFi状态</div>
-        <div>Connected</div>
-        <div>Home-2.4G</div>
-        <div>192.168.1.72</div>
-      </div>
-      <div style="width:109px;border:1px solid #444;padding:3px;font-size:11px;display:flex;flex-direction:column;gap:2px;">
-        <div style="color:#bdbdbd;">扫描结果</div>
-        <div style="border:1px solid #444;padding:2px;">Home-2.4G</div>
-        <div style="border:1px solid #444;padding:2px;">Office-5G</div>
-        <div style="border:1px solid #444;padding:2px;">Lab-AP01</div>
-      </div>
-    </div>
-    <div style="height:136px;display:flex;gap:6px;">
-      <div style="width:109px;border:1px solid #444;padding:4px;font-size:12px;display:flex;flex-direction:column;gap:3px;">
-        <div style="color:#bdbdbd;">动作</div>
-        <div style="border:1px solid #444;padding:2px;">扫描</div>
-        <div style="border:1px solid #444;padding:2px;">断开</div>
-        <div style="border:1px solid #444;padding:2px;">校时</div>
-        <div style="border:1px solid #444;padding:2px;">同步Todo</div>
-      </div>
-      <div style="width:109px;border:1px solid #444;padding:4px;font-size:11px;display:flex;flex-direction:column;gap:3px;">
-        <div style="color:#bdbdbd;">同步状态</div>
-        <div>TIME OK</div>
-        <div>TODO OK</div>
-        <div>19:25:10</div>
-      </div>
-    </div>
-  </div>
-  <div style="height:22px;border:1px solid #444;font-size:12px;display:grid;grid-template-columns:repeat(4,1fr);text-align:center;align-items:center;">
-    <span>上移</span><span>下移</span><span>选择</span><span>返回</span>
-  </div>
-</div>
-
-### 2.7 关机确认页
-<div style="width:240px;height:320px;background:#000;color:#fff;border:1px solid #555;box-sizing:border-box;padding:8px;font-family:monospace;display:flex;flex-direction:column;gap:6px;">
-  <div style="height:28px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:18px;">关机确认</div>
-  <div style="flex:1;border:1px solid #444;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;">
-    <div style="font-size:28px;">确认关机？</div>
-    <div style="font-size:12px;color:#bdbdbd;">再次确认后关闭系统</div>
-  </div>
-  <div style="height:22px;border:1px solid #444;font-size:12px;display:grid;grid-template-columns:repeat(4,1fr);text-align:center;align-items:center;">
-    <span>返回</span><span>-</span><span>-</span><span>确认</span>
-  </div>
-</div>
+说明：
+- 闹钟响铃页在实现上复用 `POWER` 页面容器。
+- 极简显示状态不是普通子页面，而是一种自动进入 / 自动退出的特殊显示模式。
 
 ---
 
-## 3. 页面元素说明
+## 3. 首页 `HOME`
 
-### 3.1 正常显示首页
-- 时间区：日期、星期、时分秒
-- 状态区：声音、语音（`ON/OFF`）
-- 环境区：温度、湿度、光照
-- Tips 区：单条提示语
-- 闹钟区：最近闹钟时间、重复标记
-- Todo 区：固定 2 条，超出显示 `+N`
-- 底栏：`设置 / 闹钟 / 网络 / 关机`
+### 3.1 显示内容
+首页显示以下内容：
+- 日期、时间
+- 声音状态 `SND ON/OFF`
+- 语音状态 `AUD ON/OFF`
+- 环境数据：温度、湿度、光照
+- 环境提示文本
+- 最近闹钟摘要
+- Todo List 摘要
+- 底部 4 键功能提示
 
-### 3.2 极简显示页
-- 居中显示当前时间
-
-### 3.3 设置页
-- 列表项：`SOUND`、`AUDIO`、`VOLUME`、`ENV SAMPLE`、`REPEAT`
-
-### 3.4 闹钟页
-- 列表区：`+ 新建闹钟` 与已有闹钟
-- 详情区：当前选中项摘要
-- 编辑字段：时、分、秒、星期方案、重复、启用
-- 删除确认：确认文案与当前闹钟摘要
-
-### 3.5 闹钟页（新建闹钟选择页）
-- 字段列表：时、分、秒、星期方案、重复、启用
-- 单字段高亮：当前可调整项
-
-### 3.6 网络页
-- 模块：`WiFi状态`、`动作`、`扫描结果`、`同步状态`
-- 扫描结果：静态展示 3 条
-- 动作项：`扫描`、`断开`、`校时`、`同步Todo`
-
-### 3.7 关机确认页
-- 关机确认文案
-
----
-
-## 4. 按键功能标注
-
-### 4.1 首页
-| 实体按键 | 功能 |
+### 3.2 按键功能
+| 按键 | 功能 |
 | --- | --- |
-| K1 | 设置 |
-| K2 | 闹钟 |
-| K3 | 网络 |
-| K4 | 关机 |
+| `K1` | 进入设置页 |
+| `K2` | 进入闹钟页 |
+| `K3` | 进入网络页 |
+| `K4` | 进入关机确认页 |
 
-### 4.2 设置页 / 闹钟页 / 网络页（统一）
-| 实体按键 | 功能 |
-| --- | --- |
-| K1 | 上移 |
-| K2 | 下移 |
-| K3 | 选择 |
-| K4 | 返回 |
-
-### 4.3 关机确认页
-| 实体按键 | 功能 |
-| --- | --- |
-| K1 | 返回 |
-| K2 | - |
-| K3 | - |
-| K4 | 确认 |
+### 3.3 页面跳转
+- `HOME -> SETTINGS`：按 `K1`
+- `HOME -> ALARM`：按 `K2`
+- `HOME -> NETWORK`：按 `K3`
+- `HOME -> POWER`：按 `K4`
 
 ---
 
-## 5. 默认状态与状态转移
+## 4. 极简显示状态 `MINIMAL`
 
-### 5.1 正常显示首页
-- 默认状态：正常显示首页
+### 4.1 进入逻辑
+当以下条件同时满足时，系统会自动进入极简显示状态：
+- 持续无人检测一段时间
+- 持续无用户按键操作一段时间
+- 雷达状态正常
 
-```mermaid
-stateDiagram-v2
-    [*] --> 正常显示首页
-    正常显示首页 --> 设置页 : K1
-    正常显示首页 --> 闹钟页（列表态） : K2
-    正常显示首页 --> 网络页 : K3
-    正常显示首页 --> 关机确认页 : K4
-```
+### 4.2 显示内容
+- 屏幕仅保留极简时间显示
+- 不显示普通底部按键提示栏
 
-### 5.2 极简显示页
-- 默认状态：居中时间显示
+### 4.3 退出逻辑
+- 检测到人且雷达状态正常时，退出极简状态，恢复首页显示
 
-```mermaid
-stateDiagram-v2
-    [*] --> 极简显示页
-    极简显示页 --> 正常显示首页 : 退出极简
-```
-
-### 5.3 设置页
-- 默认状态：浏览态
-- 默认焦点控件：`SOUND`
-- 焦点顺序：`SOUND -> AUDIO -> VOLUME -> ENV SAMPLE -> REPEAT -> SOUND`
-
-```mermaid
-stateDiagram-v2
-    [*] --> 浏览态
-    浏览态 --> 编辑态 : K3
-    编辑态 --> 浏览态 : K3
-    编辑态 --> 浏览态 : K4
-    浏览态 --> 正常显示首页 : K4
-```
-
-### 5.4 闹钟页
-- 默认状态：列表态
-- 默认焦点控件：`+ 新建闹钟`
-
-```mermaid
-stateDiagram-v2
-    [*] --> 列表态
-    列表态 --> 新建选择页 : 选中 + 新建闹钟 / K3
-    列表态 --> 动作态 : 选中 已有闹钟 / K3
-    动作态 --> 新建选择页 : 选中 编辑 / K3
-    动作态 --> 列表态 : 选中 启用或停用 / K3
-    动作态 --> 删除确认态 : 选中 删除 / K3
-    动作态 --> 列表态 : K4
-    新建选择页 --> 列表态 : 保存完成
-    新建选择页 --> 列表态 : K4
-    删除确认态 --> 动作态 : K1
-    删除确认态 --> 列表态 : K4
-    列表态 --> 正常显示首页 : K4
-```
-
-### 5.5 网络页
-- 默认状态：模块选择态
-- 默认焦点控件：`WiFi状态`
-- 模块顺序：`WiFi状态 -> 动作 -> 扫描结果 -> 同步状态 -> WiFi状态`
-
-```mermaid
-stateDiagram-v2
-    [*] --> WiFi状态焦点
-    WiFi状态焦点 --> 动作焦点 : K2
-    动作焦点 --> 扫描结果焦点 : K2
-    扫描结果焦点 --> 同步状态焦点 : K2
-    同步状态焦点 --> WiFi状态焦点 : K2
-
-    WiFi状态焦点 --> 同步状态焦点 : K1
-    同步状态焦点 --> 扫描结果焦点 : K1
-    扫描结果焦点 --> 动作焦点 : K1
-    动作焦点 --> WiFi状态焦点 : K1
-
-    动作焦点 --> 动作模块内选择态 : K3
-    扫描结果焦点 --> 扫描结果模块内选择态 : K3
-
-    动作模块内选择态 --> 动作焦点 : K4
-    扫描结果模块内选择态 --> 扫描结果焦点 : K4
-
-    WiFi状态焦点 --> 正常显示首页 : K4
-    动作焦点 --> 正常显示首页 : K4
-    扫描结果焦点 --> 正常显示首页 : K4
-    同步状态焦点 --> 正常显示首页 : K4
-```
-
-### 5.6 关机确认页
-- 默认状态：关机确认页
-
-```mermaid
-stateDiagram-v2
-    [*] --> 关机确认页
-    关机确认页 --> 正常显示首页 : K1
-    关机确认页 --> [*] : K4
-```
+### 4.4 欢迎提示音逻辑
+- 每轮极简状态退出后，只播一次欢迎提示音
+- 持续有人时不会重复播
+- 重新进入极简状态后，欢迎逻辑重新武装
 
 ---
 
-## 6. 静态 HTML 组织规范（用于后续 LVGL 转写）
-- 每个页面以 `240x320` 单容器表示
-- 页面分为：标题区、内容区、按键标注区
-- 内容区内部使用固定像素块布局，不依赖脚本、不依赖外部 CSS
-- 颜色与字号使用明确常量，不使用动态主题切换
-- 所有预览均为静态 HTML，无 JS 交互
+## 5. 设置页 `SETTINGS`
+
+### 5.1 设置项
+当前设置项为：
+1. `SOUND`
+2. `AUDIO`
+3. `VOLUME`
+4. `ENV SAMPLE`
+5. `REPEAT`
+
+其中：
+- `SOUND`：声音总开关
+- `AUDIO`：语音总开关
+- `VOLUME`：音量
+- `ENV SAMPLE`：环境采样参数占位
+- `REPEAT`：单次闹钟触发后，提示音最大重复次数
+
+### 5.2 页面状态
+设置页有两种状态：
+1. 浏览态 `BROWSE`
+2. 编辑态 `EDIT`
+
+### 5.3 浏览态按键
+| 按键 | 功能 |
+| --- | --- |
+| `K1` | 光标上移 |
+| `K2` | 光标下移 |
+| `K3` | 修改 / 进入编辑 |
+| `K4` | 返回首页 |
+
+行为：
+- 焦点在 `SOUND`：`K3` 直接切换 `ON/OFF`
+- 焦点在 `AUDIO`：`K3` 直接切换 `ON/OFF`
+- 焦点在 `VOLUME / ENV SAMPLE / REPEAT`：`K3` 进入编辑态
+
+### 5.4 编辑态按键
+| 按键 | 功能 |
+| --- | --- |
+| `K1` | 增加数值 |
+| `K2` | 减少数值 |
+| `K3` | 保存 |
+| `K4` | 取消 |
+
+状态转换：
+- `BROWSE -> EDIT`：在可编辑项上按 `K3`
+- `EDIT -> BROWSE`：按 `K3` 保存或按 `K4` 取消
+- `SETTINGS -> HOME`：浏览态按 `K4`
+
+---
+
+## 6. 闹钟页 `ALARM`
+
+### 6.1 页面状态
+闹钟页有 4 个状态：
+1. 列表态 `LIST`
+2. 动作态 `ACTION`
+3. 编辑态 `EDIT`
+4. 删除确认态 `DELETE_CONFIRM`
+
+### 6.2 列表态 `LIST`
+用于：
+- 浏览已有闹钟
+- 选择 `+ NEW ALARM`
+- 进入某条闹钟的动作菜单
+
+按键：
+| 按键 | 功能 |
+| --- | --- |
+| `K1` | 上移 |
+| `K2` | 下移 |
+| `K3` | 选择 |
+| `K4` | 返回首页 |
+
+转换：
+- 选中 `+ NEW ALARM` 后按 `K3`：进入 `EDIT`
+- 选中已有闹钟后按 `K3`：进入 `ACTION`
+- 按 `K4`：返回 `HOME`
+
+### 6.3 动作态 `ACTION`
+当前动作：
+1. `EDIT`
+2. `TOGGLE`
+3. `DELETE`
+4. `BACK`
+
+按键：
+| 按键 | 功能 |
+| --- | --- |
+| `K1` | 上移 |
+| `K2` | 下移 |
+| `K3` | 执行动作 |
+| `K4` | 返回列表态 |
+
+转换：
+- `EDIT`：进入 `EDIT`
+- `TOGGLE`：切换启用状态后回到 `LIST`
+- `DELETE`：进入 `DELETE_CONFIRM`
+- `BACK`：回到 `LIST`
+- `K4`：直接回 `LIST`
+
+### 6.4 编辑态 `EDIT`
+可编辑字段：
+1. `HOUR`
+2. `MINUTE`
+3. `SECOND`
+4. `REPEAT`
+5. `ENABLED`
+
+按键：
+| 按键 | 功能 |
+| --- | --- |
+| `K1` | 减小 / 切换当前字段 |
+| `K2` | 增大 / 切换当前字段 |
+| `K3` | 下一字段 / 保存 |
+| `K4` | 取消 |
+
+说明：
+- `HOUR / MINUTE / SECOND`：`K1` 减小，`K2` 增大
+- `REPEAT / ENABLED`：`K1` 和 `K2` 都是切换布尔值
+- 最后一个字段按 `K3` 时保存并返回 `LIST`
+- 新建闹钟取消时回 `LIST`
+- 编辑已有闹钟取消时回 `ACTION`
+
+### 6.5 删除确认态 `DELETE_CONFIRM`
+按键：
+| 按键 | 功能 |
+| --- | --- |
+| `K1` | 取消 |
+| `K2` | 无功能 |
+| `K3` | 无功能 |
+| `K4` | 删除 |
+
+转换：
+- `K1`：回 `ACTION`
+- `K4`：删除后回 `LIST`
+
+---
+
+## 7. 网络页 `NETWORK`
+
+### 7.1 页面模块
+当前网络页包含 4 个模块：
+1. `WIFI STATUS`
+2. `ACTION`
+3. `MY NET`
+4. `SYNC STATUS`
+
+### 7.2 页面状态
+网络页有两种交互状态：
+1. 模块浏览状态 `MODULE`
+2. 动作选择状态 `ACTION`
+
+说明：
+- 只有 `ACTION` 模块支持进入动作选择状态
+- 其他模块仅用于查看信息
+
+### 7.3 模块浏览状态按键
+| 按键 | 功能 |
+| --- | --- |
+| `K1` | 切到上一个模块 |
+| `K2` | 切到下一个模块 |
+| `K3` | 选择 |
+| `K4` | 返回首页 |
+
+行为：
+- 当焦点在 `ACTION` 上时，按 `K3`：进入动作选择状态
+- 当焦点在 `WIFI STATUS / MY NET / SYNC STATUS` 上时，按 `K3`：无新的子逻辑，只保留查看属性
+
+### 7.4 动作选择状态按键
+当前动作项：
+1. `CONNECT NOW`
+2. `SYNC TODO`
+3. `BACK`
+
+按键：
+| 按键 | 功能 |
+| --- | --- |
+| `K1` | 上移 |
+| `K2` | 下移 |
+| `K3` | 执行动作 |
+| `K4` | 返回模块浏览状态 |
+
+行为：
+- `CONNECT NOW`：立即尝试连接固定热点
+- `SYNC TODO`：立即访问 Web，同步一次 Todo List
+- `BACK`：退出动作选择状态
+
+### 7.5 各模块含义
+#### 7.5.1 `WIFI STATUS`
+显示：
+- 当前 SSID
+- Wi-Fi 是否启动
+- 是否已连接
+- IP 是否就绪
+
+#### 7.5.2 `ACTION`
+负责执行网络动作，不负责显示详情。
+
+#### 7.5.3 `MY NET`
+仅查看当前固定目标热点状态。
+显示逻辑：
+- 已连接目标热点：`CONNECTED`
+- 未连接目标热点：`NOT CONNECTED`
+
+说明：
+- 当前不是热点扫描列表
+- 不提供热点切换
+- 不提供密码输入
+
+#### 7.5.4 `SYNC STATUS`
+显示：
+- 时间同步状态
+- Wi-Fi 在线状态
+- 当前 IP
+- Todo 同步状态
+- 最近一次 Todo 同步时间
+
+---
+
+## 8. 关机确认页 `POWER`
+
+### 8.1 页面作用
+用于展示关机确认提示。
+
+### 8.2 当前实现限制
+当前版本只实现了：
+- 确认页面
+- 确认文案更新
+
+尚未实现：
+- 真正的硬件关机动作
+
+### 8.3 按键
+| 按键 | 功能 |
+| --- | --- |
+| `K1` | 返回首页 |
+| `K2` | 无功能 |
+| `K3` | 无功能 |
+| `K4` | 确认 |
+
+转换：
+- `K1`：`POWER -> HOME`
+- `K4`：更新确认文本，但不执行真实关机
+
+---
+
+## 9. 闹钟响铃页
+
+### 9.1 进入逻辑
+当某条已启用闹钟命中当前时间时，系统自动进入响铃页。
+
+### 9.2 显示内容
+- 黑底
+- 中央显示当前响铃闹钟时间 `HH:MM:SS`
+- 下方显示 `PRESS ANY KEY TO STOP`
+
+### 9.3 提示音逻辑
+- 响铃时播放闹钟提示音
+- 单次触发最多播放 `REPEAT` 次
+- `REPEAT` 来源于设置页中的参数
+- 当 `REPEAT = 0` 时，当前实现按 `1` 次处理
+
+### 9.4 按键
+| 按键 | 功能 |
+| --- | --- |
+| `K1` | 停止 |
+| `K2` | 停止 |
+| `K3` | 停止 |
+| `K4` | 停止 |
+
+转换：
+- 任意按键：停止响铃并返回 `HOME`
+
+---
+
+## 10. 按键功能变化总结
+
+### 10.1 首页
+- `Set / Alm / Net / Pwr`
+
+### 10.2 设置页
+- 浏览态：`Up / Down / Change / Home`
+- 编辑态：`Inc / Dec / Save / Back`
+
+### 10.3 闹钟页
+- 列表态：`Up / Down / Select / Home`
+- 动作态：`Up / Down / Apply / Back`
+- 删除确认态：`Cancel / 空 / 空 / Delete`
+- 编辑态：`Dec / Inc / Next / Cancel`
+
+### 10.4 网络页
+- 模块浏览态：`Prev / Next / Select / Home`
+- 动作选择态：`Up / Down / Apply / Back`
+
+### 10.5 关机确认页
+- `Back / 空 / 空 / Confirm`
+
+### 10.6 闹钟响铃页
+- `Stop / Stop / Stop / Stop`
+
+---
+
+## 11. 当前实现限制
+1. 关机页未接真实关机动作
+2. 网络页仅支持固定热点模式
+3. `MY NET` 仅用于查看，不是热点扫描结果页
+4. `ENV SAMPLE` 仍主要是参数占位
+5. 闹钟仍以本地运行态模型为主，完整持久化能力有待后续完善
+6. Todo 文本编辑不在设备端完成，依赖局域网 Web 服务

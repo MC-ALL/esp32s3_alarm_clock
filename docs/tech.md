@@ -374,7 +374,7 @@ overlay 只表达硬件与启动时硬件事实，至少包含以下节点：
 | `modules/sensing/environment_service.*` | DHT11/BH1750 周期采样、snapshot/stale/fault | sensor capability | 专用 `k_work_delayable` |
 | `modules/sensing/presence_service.*` | LD2410 UART 字节流解析 + OUT GPIO 融合 | UART + GPIO | 专用线程 + `ring_buf` |
 | `modules/connectivity/net_service.*` | Wi-Fi 连接、SNTP、todo sync 串行化 | network/session capability | 专用线程 + `k_msgq` |
-| `modules/reminder/reminder_service.*` | 闹钟/报时/代办/休息提醒判定与 registry | reminder registry | `k_work_delayable` |
+| `modules/reminder/reminder_service.*` | 闹钟/代办/休息提醒判定与 registry | reminder registry | `k_work_delayable` |
 | `modules/audio/audio_service.*` | voice arbiter + I2S 播放 | audio output capability | 专用线程 + priority pending list |
 
 ## 6.2 模块边界细化
@@ -587,7 +587,7 @@ LD2410 UART RX 采用：
 | 资源 | 竞争来源 | 采用策略 |
 | :--- | :--- | :--- |
 | display capability | UI 刷新、提醒态、时间刷新、设置界面 | `display_service` 唯一 owner + latest render model |
-| audio output capability | 问候、环境提示、报时、休息提醒、闹钟、代办 | `audio_service` 内部 arbiter 排序 |
+| audio output capability | 问候、环境提示、休息提醒、闹钟、代办 | `audio_service` 内部 arbiter 排序 |
 | network session capability | Wi-Fi 连接、SNTP、todo 同步、shell 手动同步 | `net_service` 单线程串行 |
 | persistence capability | 系统参数、语音偏好、闹钟配置、关机 flush | `persistence_broker` 单线程串行 |
 | environment snapshot | sampler 写、UI/提醒读 | 单 writer snapshot + query |

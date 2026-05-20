@@ -102,6 +102,44 @@ static const app_temp_humidity_provider_t DHT11_PROVIDER = {
 
 static const app_temp_humidity_provider_t *s_temp_humidity_provider = &DHT11_PROVIDER;
 
+static void environment_log_snapshot(const app_environment_snapshot_t *snapshot)
+{
+	if (snapshot == NULL) {
+		return;
+	}
+
+	if (snapshot->bh1750_valid && snapshot->dht11_valid) {
+		ESP_LOGI(TAG,
+			"sample lux=%.2f temp=%.1f humi=%.1f valid=1/1 ts_us=%" PRIi64,
+			snapshot->lux,
+			snapshot->temperature_c,
+			snapshot->humidity_percent,
+			snapshot->updated_at_us);
+		return;
+	}
+
+	if (snapshot->bh1750_valid) {
+		ESP_LOGI(TAG,
+			"sample lux=%.2f temp=-- humi=-- valid=1/0 ts_us=%" PRIi64,
+			snapshot->lux,
+			snapshot->updated_at_us);
+		return;
+	}
+
+	if (snapshot->dht11_valid) {
+		ESP_LOGI(TAG,
+			"sample lux=-- temp=%.1f humi=%.1f valid=0/1 ts_us=%" PRIi64,
+			snapshot->temperature_c,
+			snapshot->humidity_percent,
+			snapshot->updated_at_us);
+		return;
+	}
+
+	ESP_LOGI(TAG,
+		"sample lux=-- temp=-- humi=-- valid=0/0 ts_us=%" PRIi64,
+		snapshot->updated_at_us);
+}
+
 static int bh1750_measure_lux(float *lux_out)
 {
 	static const uint8_t bh1750_cmd = 0x10;
@@ -127,6 +165,8 @@ static int bh1750_measure_lux(float *lux_out)
 static void environment_task(void *arg)
 {
 	(void)arg;
+
+	ESP_LOGI(TAG, "environment task started sample_ms=2000");
 
 	for (;;) {
 		float lux = 0.0f;
@@ -172,19 +212,15 @@ static void environment_task(void *arg)
 		s_snapshot.updated_at_us = esp_timer_get_time();
 		xSemaphoreGive(s_snapshot_mutex);
 
-		ESP_LOGI(TAG, "env provider=%s lux=%.2f temp=%.1f humi=%.1f valid=%d/%d",
-			s_temp_humidity_provider->name,
-			s_snapshot.lux,
-			s_snapshot.temperature_c,
-			s_snapshot.humidity_percent,
-			s_snapshot.bh1750_valid ? 1 : 0,
-			s_snapshot.dht11_valid ? 1 : 0);
+		environment_log_snapshot(&s_snapshot);
 		vTaskDelay(pdMS_TO_TICKS(2000));
 	}
 }
 
 int environment_service_init(void)
 {
+	(void)esp_log_level_set("dht", ESP_LOG_WARN);
+
 	const i2c_master_bus_config_t bus_config = {
 		.i2c_port = APP_BH1750_I2C_PORT,
 		.sda_io_num = APP_PIN_BH1750_SDA,

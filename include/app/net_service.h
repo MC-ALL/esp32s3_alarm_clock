@@ -15,22 +15,26 @@ typedef struct {
 } app_net_status_t;
 
 typedef struct {
-	char ssid[33];
-	int8_t rssi;
-	uint8_t authmode;
-} app_net_scan_record_t;
+	char id[24];
+	char text[96];
+	bool done;
+	char updated_at[40];
+} app_todo_item_t;
 
-#define APP_NET_SCAN_MAX_RESULTS 5
+#define APP_TODO_MAX_ITEMS 8
 
 typedef struct {
-	bool scan_in_progress;
-	bool scan_ready;
+	bool sync_ok;
+	bool sync_in_progress;
 	uint8_t count;
-	app_net_scan_record_t records[APP_NET_SCAN_MAX_RESULTS];
-} app_net_scan_snapshot_t;
+	char last_error[64];
+	char last_sync_at[32];
+	app_todo_item_t items[APP_TODO_MAX_ITEMS];
+} app_todo_snapshot_t;
 
 bool net_service_get_status(app_net_status_t *out_status);
-bool net_service_get_scan_snapshot(app_net_scan_snapshot_t *out_snapshot);
-int net_service_request_scan(void);
+int net_service_request_connect_now(void);
+bool net_service_get_todo_snapshot(app_todo_snapshot_t *out_snapshot);
+int net_service_request_todo_sync_now(void);
 
 #endif

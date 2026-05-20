@@ -20,6 +20,17 @@ idf_component_register(
   INCLUDE_DIRS
     "../include"
     "../src"
+  EMBED_FILES
+    "audio_embeds/welcome.wav"
+    "audio_embeds/connected.wav"
+    "audio_embeds/env_light_low.wav"
+    "audio_embeds/env_light_high.wav"
+    "audio_embeds/env_temp_low.wav"
+    "audio_embeds/env_temp_high.wav"
+    "audio_embeds/env_humi_low.wav"
+    "audio_embeds/env_humi_high.wav"
+    "audio_embeds/rest_reminder.wav"
+    "audio_embeds/clock.wav"
   REQUIRES
     driver
     esp_driver_gpio
@@ -31,6 +42,7 @@ idf_component_register(
     esp_event
     esp_netif
     esp_timer
+    esp_http_client
     esp_lcd
     esp_wifi
     lwip

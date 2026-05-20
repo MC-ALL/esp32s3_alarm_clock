@@ -2,211 +2,225 @@
 
 ## 1. 文档目标
 
-这份文档面向后续负责 `LVGL`、硬件驱动、传感器、网络与语音模块的同学。
+这份文档面向后续负责 `LVGL`、硬件驱动、传感器、网络、Todo 同步与语音模块的同学。
 目标是明确：
-- 页面需要读取哪些状态
-- 页面会发出哪些动作
+- 当前页面实际读取哪些状态
+- 当前页面会触发哪些动作
 - 各页面字段如何展示
-- 各类异常和空数据如何降级显示
+- 各模块交接时应以什么语义对齐
 
-当前 HTML 原型对应的页面：
-- 正常显示首页
-- 极简显示页
+本文档以**当前固件实际实现**为准。
+
+当前页面集合：
+- 正常首页
+- 极简显示状态
 - 设置页
 - 闹钟页
 - 网络页
 - 关机确认页
-- 关机态
+- 闹钟响铃页
 
 补充说明：
-- 页面原型用于表达 UI 状态机与信息结构
-- 真正运行在 `ESP32` 上时，硬件驱动、本地服务同步、按键扫描、雷达采样都应通过平台层接口接入
+- 页面原型只用于表达 UI 状态机与信息结构
+- 运行在 `ESP32` 上时，按键扫描、Wi-Fi 状态、SNTP、环境采样、Todo 同步等都通过平台层接口接入
 - 更具体的嵌入式对接契约见 [esp32-ui-integration.md](/home/long/Smart_Clock/docs/api/esp32-ui-integration.md)
+
+---
 
 ## 2. 页面与字段
 
 ### 2.1 首页
 
 字段清单：
-- `clock.date`：日期，格式 `YYYY-MM-DD`
-- `clock.weekday`：星期文本，如 `周四`
-- `clock.hhmm`：时分，格式 `HH:MM`
-- `clock.ss`：秒，格式 `SS`
-- `clock.synced`：是否已校时
-- `system.soundMuted`：是否静音
-- `system.audioEnabled`：是否开启语音
+- `clock.date`
+- `clock.weekday`
+- `clock.hhmmss`
+- `clock.synced`
+- `presence.detected`
+- `system.soundEnabled`
+- `system.audioEnabled`
 - `environment.temperature`
 - `environment.humidity`
 - `environment.lux`
-- `voice.currentPromptText`
+- `environment.noticeText`
 - `alarm.nearest`
 - `todo.items`
 
 展示规则：
-- `HH:MM` 为主视觉
-- 秒数小一号显示在右侧
-- 日期和星期为小号辅助信息
-- 右上显示 `sound` 和 `audio` 状态，页面展示为 `ON/OFF`
-- 环境参数固定为一行，按 `图标 + 标识 + 数值` 紧凑展示
-- 语音提示显示 1 到 2 行
-- 最近闹钟展示时间、星期方案、是否重复
-- todo 列表显示 4 到 5 条，超出显示 `+N more`
+- 主视觉是完整时间
+- 未校时时显示 `UNSYNC`
+- 检测到人时显示 `DETECTED`
+- 首页底部显示 4 个主导航提示：`Set / Alm / Net / Pwr`
+- Todo 区显示前 3 条，超出显示 `+N`
+- 若无 Todo，显示 `No todo`
 
-### 2.2 极简显示页
+### 2.2 极简显示状态
 
 字段清单：
 - `clock.hhmm`
-- `clock.ss`
+- `presence.detected`
+- `presence.radarHealthy`
+- `presence.absenceDurationMs`
+- `presence.inactivityDurationMs`
 
 展示规则：
 - 纯黑背景
 - 仅显示时间
-- 不显示任何提示条、环境数据、待办、按键说明
-- 雷达重新检测到人后返回首页
-- 如果用户在极简模式下再次操作按键，也可立即返回首页
+- 不显示环境、Todo、底栏按键提示
+- 检测到人后退出极简状态
+- 退出极简状态时可触发一次欢迎提示音
 
 ### 2.3 设置页
 
 字段清单：
-- `system.soundMuted`
+- `system.soundEnabled`
 - `system.audioEnabled`
 - `system.volume`
 - `environment.sampleInterval`
-- `voice.repeatCount`
+- `alarm.repeatCount`
 
 交互语义：
-- 浏览态：上下选择配置项
-- 编辑态：调整当前配置项
+- 浏览态：上下切换配置项
+- 编辑态：修改数值型配置项
+- `SOUND / AUDIO` 为直接切换型
+- `VOLUME / ENV SAMPLE / REPEAT` 为进入编辑型
 
 ### 2.4 闹钟页
 
 字段清单：
 - `alarm.list[]`
-- `alarm.list[].id`
 - `alarm.list[].hour`
 - `alarm.list[].minute`
 - `alarm.list[].second`
-- `alarm.list[].weekdays[]`
 - `alarm.list[].repeat`
 - `alarm.list[].enabled`
+- `alarm.currentView`
+- `alarm.selectedIndex`
 
 交互语义：
-- 列表态：查看列表，选择“新建闹钟”或某条已有闹钟
-- 动作态：对当前闹钟执行 `编辑 / 启用或停用 / 删除`
-- 编辑态：修改时分秒、星期方案、重复、启用状态
-- 删除确认态：确认是否删除当前闹钟
-- `repeat=false` 且触发完成的闹钟，不再出现在 `alarm.list`
+- 列表态：选择 `+ NEW ALARM` 或已有闹钟
+- 动作态：对当前闹钟执行 `EDIT / TOGGLE / DELETE / BACK`
+- 编辑态：修改 `hour / minute / second / repeat / enabled`
+- 删除确认态：确认删除当前闹钟
+
+说明：
+- 当前实现中，闹钟数据主要是本地运行态模型
+- 当前字段中没有闹钟名称
 
 ### 2.5 网络页
 
 字段清单：
+- `network.wifiStarted`
 - `network.wifiConnected`
+- `network.ipReady`
 - `network.ssid`
 - `network.ip`
-- `network.rssi`
-- `network.scanResults[]`
-- `network.ntpSyncStatus`
-- `network.ntpSyncedAt`
-- `network.todoSyncStatus`
-- `network.todoSyncedAt`
-- `network.lastError`
+- `network.timeSynced`
+- `network.targetAp`
+- `todo.syncOk`
+- `todo.lastSyncAt`
 
 交互语义：
-- 页面分为 4 个大模块：`WiFi状态`、`动作`、`扫描结果`、`同步状态`
-- 先在大模块之间切换，再进入模块内部选择
-- `扫描结果` 内选中某个热点后，`K3` 默认执行连接
-- `动作` 模块仅保留：扫描、断开、校时、同步 Todo
+- 页面分为 4 个模块：`WIFI STATUS`、`ACTION`、`MY NET`、`SYNC STATUS`
+- 先在模块间切换，再进入 `ACTION` 模块内部选择
+- `MY NET` 只负责查看目标热点连接状态
+- `SYNC STATUS` 只负责查看时间同步与 Todo 同步结果
 
 ### 2.6 关机确认页
 
 字段清单：
-- `system.powerState`
+- `system.powerConfirmVisible`
 
 展示规则：
-- 中间大字显示确认文案
-- `K1` 返回首页
-- `K4` 确认关机
+- 中间显示确认文案
+- 当前实现中 `K4` 只更新确认文本，不执行真实硬件关机
+
+### 2.7 闹钟响铃页
+
+字段清单：
+- `alarm.active.hour`
+- `alarm.active.minute`
+- `alarm.active.second`
+- `alarm.ringing`
+- `alarm.repeatRemaining`
+
+展示规则：
+- 黑底
+- 中央显示当前响铃闹钟时间
+- 下方显示 `PRESS ANY KEY TO STOP`
+- 4 个按键全部等价为 `Stop`
+
+---
 
 ## 3. 页面状态读取接口
 
-建议由一个统一状态聚合层向 UI 提供只读状态。
+建议由统一状态聚合层向 UI 提供只读状态。
 
 示例：
 
 ```json
 {
   "clock": {
-    "timestamp": 1778761514000,
-    "date": "2026-05-14",
-    "weekday": "周四",
-    "hhmm": "20:25",
-    "ss": "14",
+    "date": "2026-05-20",
+    "weekday": "TUE",
+    "hhmmss": "19:30:08",
     "synced": true
   },
+  "presence": {
+    "detected": true,
+    "radarHealthy": true,
+    "absenceDurationMs": 0,
+    "inactivityDurationMs": 4000
+  },
   "system": {
-    "soundMuted": false,
+    "soundEnabled": true,
     "audioEnabled": true,
-    "volume": 7,
-    "powerState": "on",
+    "volume": 6,
+    "powerConfirmVisible": false,
     "currentViewMode": "home"
   },
   "environment": {
     "temperature": 26,
     "humidity": 58,
     "lux": 320,
-    "sampleInterval": 30,
-    "lastUpdatedAt": 1778761498000,
+    "sampleInterval": 1,
+    "noticeText": "LIGHT LOW",
     "samplingHealthy": true
   },
-  "presence": {
-    "detected": true,
-    "absenceDurationMs": 8000,
-    "inactiveDurationMs": 3000,
-    "thresholdMs": 30000,
-    "radarHealthy": true,
-    "absentSince": null
-  },
-  "voice": {
-    "currentPromptText": "提醒：环境光偏低，注意开灯。",
-    "lastPromptType": "environment",
-    "speaking": false,
-    "repeatCount": 2
-  },
   "alarm": {
+    "repeatCount": 2,
     "nearest": {
-      "id": "alarm-1",
       "hour": 7,
       "minute": 30,
       "second": 0,
-      "weekdays": [1, 3, 5],
       "repeat": true,
       "enabled": true
     },
-    "list": []
+    "list": [
+      { "hour": 7, "minute": 30, "second": 0, "repeat": true, "enabled": true }
+    ],
+    "ringing": false
   },
   "todo": {
     "items": [
-      { "id": "todo-1", "text": "10:00 前确认会议纪要并发给项目组" }
+      { "id": "todo-1", "text": "10:00 前确认会议纪要并发给项目组", "done": false }
     ],
-    "syncStatus": "ok",
-    "lastSyncAt": 1778761451000
+    "syncOk": true,
+    "lastSyncAt": "19:25:10"
   },
   "network": {
+    "wifiStarted": true,
     "wifiConnected": true,
-    "ssid": "Office-Nest",
-    "ip": "192.168.1.72",
-    "rssi": -48,
-    "scanResults": [
-      { "ssid": "Office-Nest", "rssi": -48, "secure": true }
-    ],
-    "ntpSyncStatus": "ok",
-    "ntpSyncedAt": "20:14:08",
-    "todoSyncStatus": "ok",
-    "todoSyncedAt": "20:12:31",
-    "lastError": ""
+    "ipReady": true,
+    "ssid": "lbxx",
+    "ip": "192.168.220.226",
+    "timeSynced": true,
+    "targetAp": "lbxx"
   }
 }
 ```
+
+---
 
 ## 4. 动作接口
 
@@ -218,32 +232,31 @@ openAlarms(): void
 openNetwork(): void
 openPowerConfirm(): void
 backHome(): void
-requestShutdown(): void
 ```
 
 说明：
-- `enterMinimalMode` / `exitMinimalMode` 不建议作为外部导航动作暴露
-- 极简模式切换应由 `presence` 与 `inactivity` 状态自动驱动
-- `powerOn` 属于平台层唤醒行为，不属于页面导航动作
+- 极简模式进入 / 退出不建议作为外部动作暴露
+- 极简模式应由 presence 与 inactivity 自动驱动
+- 闹钟响铃页由闹钟触发逻辑自动进入
 
 ### 4.2 设置动作
 
 ```ts
-setSoundMuted(value: boolean): Result
+setSoundEnabled(value: boolean): Result
 setAudioEnabled(value: boolean): Result
 setVolume(level: number): Result
 setEnvSampleInterval(seconds: number): Result
-setVoiceFeatureEnabled(type: "environment" | "hourly" | "rest", value: boolean): Result
-setVoiceRepeatCount(count: number): Result
+setAlarmRepeatCount(count: number): Result
 ```
 
 ### 4.3 闹钟动作
 
 ```ts
 createAlarm(payload: AlarmPayload): Result
-updateAlarm(id: string, payload: AlarmPayload): Result
-deleteAlarm(id: string): Result
-toggleAlarm(id: string, enabled: boolean): Result
+updateAlarm(index: number, payload: AlarmPayload): Result
+deleteAlarm(index: number): Result
+toggleAlarm(index: number, enabled: boolean): Result
+stopActiveAlarm(): Result
 ```
 
 ```ts
@@ -251,7 +264,6 @@ interface AlarmPayload {
   hour: number
   minute: number
   second: number
-  weekdays: number[]
   repeat: boolean
   enabled: boolean
 }
@@ -260,12 +272,13 @@ interface AlarmPayload {
 ### 4.4 网络动作
 
 ```ts
-scanWifi(): Result
-connectWifi(ssid: string, password: string): Result
-disconnectWifi(): Result
-syncTime(): Result
-syncTodo(): Result
+connectNow(): Result
+syncTodoNow(): Result
 ```
+
+说明：
+- 当前固定热点模式下，不暴露 `scanWifi / connectWifi(ssid, password) / disconnectWifi`
+- 当前网络页只有手动重连和手动同步 Todo 两个动作入口
 
 ### 4.5 结果结构建议
 
@@ -277,7 +290,9 @@ interface Result {
 }
 ```
 
-建议失败时始终返回可读 `message`，用于网络页或语音提示区展示。
+建议失败时始终返回可读 `message`，用于网络页或日志输出。
+
+---
 
 ## 5. 按键映射
 
@@ -291,14 +306,14 @@ interface Result {
 浏览态：
 - `K1`：上移
 - `K2`：下移
-- `K3`：编辑
+- `K3`：修改 / 进入编辑
 - `K4`：返回首页
 
 编辑态：
-- `K1`：减少 / 切换到上一个值
-- `K2`：增加 / 切换到下一个值
-- `K3`：确认当前项
-- `K4`：取消本次编辑
+- `K1`：增加数值
+- `K2`：减少数值
+- `K3`：保存
+- `K4`：取消
 
 ### 5.3 闹钟页
 列表态：
@@ -310,95 +325,49 @@ interface Result {
 动作态：
 - `K1`：上移
 - `K2`：下移
-- `K3`：选择当前动作
+- `K3`：执行当前动作
 - `K4`：返回列表态
 
-编辑态：
-- `K1`：减少当前字段
-- `K2`：增加当前字段
-- `K3`：确认当前字段并进入下一个字段
-- `K4`：取消本次编辑
-
 删除确认态：
-- `K1`：取消删除
-- `K4`：确认删除
+- `K1`：取消
+- `K4`：删除
+
+编辑态：
+- `K1`：减小 / 切换当前字段
+- `K2`：增大 / 切换当前字段
+- `K3`：下一字段 / 保存
+- `K4`：取消
 
 ### 5.4 网络页
-模块选择态：
-- `K1`：上一个模块
-- `K2`：下一个模块
-- `K3`：选择当前模块
+模块浏览态：
+- `K1`：切上一个模块
+- `K2`：切下一个模块
+- `K3`：选择
 - `K4`：返回首页
 
-模块内选择态：
+动作选择态：
 - `K1`：上移
 - `K2`：下移
-- `K3`：选择当前项
-- `K4`：返回模块选择态
+- `K3`：执行动作
+- `K4`：返回模块浏览态
 
 ### 5.5 关机确认页
-- `K1`：取消关机并返回首页
-- `K4`：确认关机
+- `K1`：返回首页
+- `K4`：确认
 
-## 6. 状态切换
+### 5.6 闹钟响铃页
+- `K1`：停止
+- `K2`：停止
+- `K3`：停止
+- `K4`：停止
 
-### 6.1 人体检测触发
-- 屏幕处于正常显示态时，只有连续无人达到 `30s` 且连续无操作达到 `30s`，才进入极简模式
-- 屏幕处于极简模式时，雷达重新检测到人后立即返回首页
-- 屏幕处于极简模式时，如果用户再次按键操作，也可立即返回首页
-- 如果雷达状态异常，建议停用自动切换极简模式，维持正常显示
-- 按键、点击、触摸不应被当作“有人”信号，但应刷新“无操作计时”
+---
 
-### 6.2 关机触发
-- 首页 `K4` 进入关机确认页
-- 确认后进入关机态
-- 后续通过专门开机动作或按键/点击唤醒逻辑回到首页
+## 6. 当前实现限制
 
-## 7. 空数据与异常展示规则
-
-### 7.1 时间未同步
-- 首页日期旁显示 `UNSYNC`
-- 仍显示本地运行时间
-
-### 7.2 环境传感器异常
-- 温度、湿度、光照显示 `--`
-- 语音提示区可显示一条告警文案
-- 保留布局，不因字段缺失而塌陷
-
-### 7.3 无待办
-- todo 区显示 `无待办`
-
-### 7.4 无闹钟
-- 最近闹钟区显示 `无闹钟`
-- 闹钟管理页保留“新建闹钟”入口
-
-### 7.5 WiFi 未连接
-- 网络页明确显示 `未连接`
-- NTP 与 todo 同步动作可以失败，但需返回可读错误原因
-
-### 7.6 Todo 云同步失败
-- 网络页显示失败原因
-- 首页可以通过语音提示区展示轻量提醒
-
-### 7.7 语音关闭
-- `audioEnabled = false` 时，语音提示区仍可显示文本事件
-- 但不要求实际播报
-
-## 8. HTML 原型与 LVGL 对接建议
-
-- HTML 中的区块已经按嵌入式页面结构拆分，可直接映射为 `LVGL` 容器
-- 首页可拆为：时间区、状态区、环境条、语音条、闹钟卡、待办列表、按键栏
-- 列表页可统一为：标题栏、列表区、详情区、按键栏
-- 接口层建议保持“只读状态 + 动作命令”的单向流，不要让界面直接驱动底层状态对象
-
-## 9. 当前原型文件
-
-- `index.html`
-- `assets/styles.css`
-- `assets/app.js`
-
-后续如转为 `LVGL`，建议先保留本文件中的：
-- 页面命名
-- 字段分组
-- 按键语义
-- 异常展示规则
+1. 关机页尚未接真实关机动作
+2. 网络页仅支持固定热点模式，不支持自由切换热点
+3. `MY NET` 不是扫描结果列表，只是目标热点连接状态查看页
+4. Todo 同步依赖局域网 Web 服务，设备本身不负责编辑 Todo 文本
+5. 闹钟当前没有名称字段
+6. `ENV SAMPLE` 尚未形成完整任务级动态重配置接口

@@ -1,4 +1,6 @@
 #include "app_module.h"
+#include <app/audio_service.h>
+#include <app/app_config.h>
 #include <app/backlight_service.h>
 #include <app/display_service.h>
 #include <app/environment_service.h>
@@ -62,6 +64,17 @@ static esp_lcd_panel_io_handle_t s_panel_io;
 static esp_lcd_panel_handle_t s_panel;
 static bool s_ready;
 static bool s_spi_bus_owned;
+static bool s_minimal_mode;
+static bool s_minimal_greeted;
+static bool s_env_notice_armed;
+static char s_env_notice_text[32];
+static int64_t s_last_presence_detected_us;
+static int64_t s_presence_session_started_us;
+static int64_t s_presence_last_absent_us;
+static int64_t s_last_user_input_us;
+static int64_t s_last_env_notice_us;
+static int64_t s_boot_started_us;
+static int64_t s_last_rest_notice_us;
 static display_page_t s_current_page = DISPLAY_PAGE_HOME;
 static SemaphoreHandle_t s_lvgl_mutex;
 static TaskHandle_t s_lvgl_task;
@@ -117,7 +130,11 @@ static uint8_t s_setting_env_sample_s;
 static uint8_t s_setting_repeat_count;
 static uint8_t s_settings_edit_value;
 static uint8_t s_network_action_focus;
-static uint8_t s_network_scan_focus;
+static bool s_alarm_ringing;
+static uint8_t s_alarm_ring_remaining;
+static uint8_t s_alarm_ring_last_second;
+static int64_t s_alarm_ring_last_play_us;
+static display_alarm_item_t s_alarm_active_item;
 static alarm_view_t s_alarm_view;
 static alarm_action_t s_alarm_action_focus;
 static uint8_t s_alarm_edit_field;
@@ -137,6 +154,12 @@ static char s_last_presence_text[16];
 static char s_last_temp_text[16];
 static char s_last_humi_text[16];
 static char s_last_lux_text[16];
+static char s_last_sound_text[16];
+static char s_last_audio_text[16];
+static char s_last_todo_item_1_text[96];
+static char s_last_todo_item_2_text[96];
+static char s_last_todo_item_3_text[96];
+static char s_last_todo_more_text[16];
 
 #if LVGL_VERSION_MAJOR >= 9
 static lv_display_t *s_lvgl_display;
@@ -211,6 +234,8 @@ static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t 
 #define APP_LV_TIMER_HANDLER() lv_timer_handler()
 #endif
 
+static void display_apply_page_state(void);
+
 static void style_panel(lv_obj_t *obj)
 {
 	lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, 0);
@@ -234,6 +259,8 @@ static void style_text_row_panel(lv_obj_t *obj)
 {
 	lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, 0);
 	lv_obj_set_style_border_width(obj, 0, 0);
+	lv_obj_set_style_outline_width(obj, 0, 0);
+	lv_obj_set_style_shadow_width(obj, 0, 0);
 	lv_obj_set_style_radius(obj, 0, 0);
 	lv_obj_set_style_pad_all(obj, 4, 0);
 }
@@ -262,6 +289,121 @@ static void set_obj_hidden(lv_obj_t *obj, bool hidden)
 		lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
 	} else {
 		lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
+	}
+}
+
+static void display_enter_minimal_mode(void)
+{
+	s_minimal_mode = true;
+	s_minimal_greeted = false;
+}
+
+static void display_exit_minimal_mode(bool trigger_welcome)
+{
+	if (s_minimal_mode && trigger_welcome && !s_minimal_greeted) {
+		if (!audio_service_is_busy()) {
+			(void)audio_service_play_event(APP_AUDIO_EVENT_WELCOME);
+		}
+		s_minimal_greeted = true;
+	}
+	s_minimal_mode = false;
+}
+
+static void display_update_minimal_mode(bool detected, bool radar_healthy)
+{
+	const int64_t now_us = esp_timer_get_time();
+	if (detected) {
+		s_last_presence_detected_us = now_us;
+		if (s_presence_last_absent_us > 0 && (now_us - s_presence_last_absent_us) > 600000000LL) {
+			s_presence_session_started_us = now_us;
+		} else if (s_presence_session_started_us == 0) {
+			s_presence_session_started_us = now_us;
+		}
+		s_presence_last_absent_us = 0;
+	} else if (s_presence_last_absent_us == 0) {
+		s_presence_last_absent_us = now_us;
+	}
+
+	const int64_t absence_us = detected ? 0 : (now_us - s_last_presence_detected_us);
+	const int64_t inactivity_us = now_us - s_last_user_input_us;
+	const bool should_enter_minimal = !detected && radar_healthy && absence_us >= 30000000LL && inactivity_us >= 30000000LL;
+
+	if (!s_minimal_mode && should_enter_minimal) {
+		display_enter_minimal_mode();
+	} else if (s_minimal_mode && detected && radar_healthy) {
+		display_exit_minimal_mode(true);
+	}
+}
+
+static void display_maybe_play_rest_notice(bool detected, bool radar_healthy)
+{
+	const int64_t now_us = esp_timer_get_time();
+
+	if (!detected || !radar_healthy || s_presence_session_started_us == 0) {
+		return;
+	}
+	if ((now_us - s_presence_session_started_us) < 10800000000LL) {
+		return;
+	}
+	if ((now_us - s_last_rest_notice_us) < 300000000LL) {
+		return;
+	}
+
+	if (!audio_service_is_busy() && audio_service_play_event(APP_AUDIO_EVENT_REST_REMINDER) == 0) {
+		s_last_rest_notice_us = now_us;
+		ESP_LOGI(TAG, "rest reminder triggered");
+	}
+}
+
+static void display_maybe_play_env_notice(const app_environment_snapshot_t *snapshot)
+{
+	const int64_t now_us = esp_timer_get_time();
+	const char *notice_text = NULL;
+	if (snapshot == NULL) {
+		return;
+	}
+	if ((now_us - s_last_env_notice_us) < 120000000LL) {
+		return;
+	}
+	if ((now_us - s_boot_started_us) < 10000000LL) {
+		return;
+	}
+
+	app_audio_event_t notice_event = APP_AUDIO_EVENT_ENV_LIGHT_LOW;
+	if (snapshot->bh1750_valid && snapshot->lux < 100.0f) {
+		notice_text = "LIGHT LOW";
+		notice_event = APP_AUDIO_EVENT_ENV_LIGHT_LOW;
+	} else if (snapshot->bh1750_valid && snapshot->lux > 600.0f) {
+		notice_text = "LIGHT HIGH";
+		notice_event = APP_AUDIO_EVENT_ENV_LIGHT_HIGH;
+	} else if (snapshot->dht11_valid && snapshot->temperature_c > 30.0f) {
+		notice_text = "TEMP HIGH";
+		notice_event = APP_AUDIO_EVENT_ENV_TEMP_HIGH;
+	} else if (snapshot->dht11_valid && snapshot->temperature_c < 10.0f) {
+		notice_text = "TEMP LOW";
+		notice_event = APP_AUDIO_EVENT_ENV_TEMP_LOW;
+	} else if (snapshot->dht11_valid && snapshot->humidity_percent > 80.0f) {
+		notice_text = "HUMI HIGH";
+		notice_event = APP_AUDIO_EVENT_ENV_HUMI_HIGH;
+	} else if (snapshot->dht11_valid && snapshot->humidity_percent < 10.0f) {
+		notice_text = "HUMI LOW";
+		notice_event = APP_AUDIO_EVENT_ENV_HUMI_LOW;
+	}
+
+	if (notice_text == NULL) {
+		s_env_notice_text[0] = '\0';
+		s_env_notice_armed = true;
+		return;
+	}
+	snprintf(s_env_notice_text, sizeof(s_env_notice_text), "%s", notice_text);
+	if (!s_env_notice_armed) {
+		return;
+	}
+
+	if (!audio_service_is_busy() && audio_service_play_event(notice_event) == 0) {
+		s_last_env_notice_us = now_us;
+		s_env_notice_armed = false;
+		ESP_LOGI(TAG, "env notice triggered: %s", s_env_notice_text);
 	}
 }
 
@@ -332,6 +474,71 @@ static void build_subpage_container(lv_obj_t **page, lv_obj_t **body_out, lv_obj
 
 	if (body_out != NULL) {
 		*body_out = body_label;
+	}
+}
+
+static bool display_alarm_matches_now(const display_alarm_item_t *alarm, const struct tm *timeinfo, bool time_valid)
+{
+	if (alarm == NULL || timeinfo == NULL || !time_valid || !alarm->enabled) {
+		return false;
+	}
+
+	return alarm->hour == (uint8_t)timeinfo->tm_hour &&
+		alarm->minute == (uint8_t)timeinfo->tm_min &&
+		alarm->second == (uint8_t)timeinfo->tm_sec;
+}
+
+static void display_update_alarm_runtime(struct tm *timeinfo, bool time_valid)
+{
+	const int64_t now_us = esp_timer_get_time();
+
+	if (!s_alarm_ringing) {
+		for (uint8_t i = 0; i < s_alarm_count; i++) {
+			if (!display_alarm_matches_now(&s_alarm_items[i], timeinfo, time_valid)) {
+				continue;
+			}
+
+			if (s_alarm_ring_last_second == (uint8_t)timeinfo->tm_sec) {
+				break;
+			}
+
+			s_alarm_ringing = true;
+			s_alarm_active_item = s_alarm_items[i];
+			s_alarm_ring_remaining = s_setting_repeat_count == 0U ? 1U : s_setting_repeat_count;
+			s_alarm_ring_last_play_us = 0;
+			s_alarm_ring_last_second = (uint8_t)timeinfo->tm_sec;
+			s_current_page = DISPLAY_PAGE_POWER;
+			snprintf(s_power_body_text, sizeof(s_power_body_text),
+				"%02u:%02u:%02u\n\nPRESS ANY KEY TO STOP",
+				s_alarm_active_item.hour,
+				s_alarm_active_item.minute,
+				s_alarm_active_item.second);
+			lv_label_set_text(s_power_body_label, s_power_body_text);
+			display_apply_page_state();
+			break;
+		}
+	}
+
+	if (!s_alarm_ringing) {
+		return;
+	}
+
+	if (s_alarm_ring_remaining == 0U) {
+		s_alarm_ringing = false;
+		s_current_page = DISPLAY_PAGE_HOME;
+		display_apply_page_state();
+		return;
+	}
+
+	if ((now_us - s_alarm_ring_last_play_us) < 3200000LL) {
+		return;
+	}
+
+	if (!audio_service_is_busy() && audio_service_play_event(APP_AUDIO_EVENT_ALARM) == 0) {
+		s_alarm_ring_last_play_us = now_us;
+		if (s_alarm_ring_remaining > 0U) {
+			s_alarm_ring_remaining--;
+		}
 	}
 }
 
@@ -449,20 +656,21 @@ static void display_update_network_page(void)
 	static const char *ITEMS[] = {
 		"WIFI STATUS",
 		"ACTION",
-		"SCAN RESULTS",
+		"MY NET",
 		"SYNC STATUS",
 	};
 	static const char *ACTION_ITEMS[] = {
-		"SCAN",
+		"CONNECT NOW",
+		"SYNC TODO",
 		"BACK",
 	};
 	char detail_buf[160];
-	char scan_buf[64];
+	const char *state_text = "MODULE";
 	app_net_status_t net_status = { 0 };
-	app_net_scan_snapshot_t scan_snapshot = { 0 };
+	app_todo_snapshot_t todo_snapshot = { 0 };
 
 	(void)net_service_get_status(&net_status);
-	(void)net_service_get_scan_snapshot(&scan_snapshot);
+	(void)net_service_get_todo_snapshot(&todo_snapshot);
 
 	if (s_network_focus == 0U) {
 		snprintf(detail_buf, sizeof(detail_buf),
@@ -473,40 +681,42 @@ static void display_update_network_page(void)
 			net_status.ip_ready ? "YES" : "NO");
 	} else if (s_network_focus == 1U) {
 		snprintf(detail_buf, sizeof(detail_buf),
-			"%s %s\n%s %s",
+			"%s %s\n%s %s\n%s %s",
 			s_network_action_focus == 0U ? ">" : " ", ACTION_ITEMS[0],
-			s_network_action_focus == 1U ? ">" : " ", ACTION_ITEMS[1]);
+			s_network_action_focus == 1U ? ">" : " ", ACTION_ITEMS[1],
+			s_network_action_focus == 2U ? ">" : " ", ACTION_ITEMS[2]);
 	} else if (s_network_focus == 2U) {
-		if (scan_snapshot.scan_in_progress) {
-			snprintf(detail_buf, sizeof(detail_buf), "SCANNING...");
-		} else if (!scan_snapshot.scan_ready || scan_snapshot.count == 0U) {
-			snprintf(detail_buf, sizeof(detail_buf), "NO RESULTS");
+		app_net_status_t scan_hint = { 0 };
+		(void)net_service_get_status(&scan_hint);
+		if (scan_hint.wifi_connected && strncmp(scan_hint.connected_ssid, APP_WIFI_STA_SSID, sizeof(scan_hint.connected_ssid)) == 0) {
+			snprintf(detail_buf, sizeof(detail_buf),
+				"SSID:  %s\nSTATE: CONNECTED\nIP:    %s",
+				APP_WIFI_STA_SSID,
+				scan_hint.ip_addr[0] != '\0' ? scan_hint.ip_addr : "--");
 		} else {
-			size_t offset = 0;
-			for (uint8_t i = 0; i < scan_snapshot.count && i < APP_NET_SCAN_MAX_RESULTS; i++) {
-				snprintf(scan_buf, sizeof(scan_buf), "%s %s (%ddBm)\n",
-					s_network_scan_focus == i ? ">" : " ",
-					scan_snapshot.records[i].ssid[0] != '\0' ? scan_snapshot.records[i].ssid : "<hidden>",
-					(int)scan_snapshot.records[i].rssi);
-				offset += (size_t)snprintf(detail_buf + offset, sizeof(detail_buf) - offset, "%s", scan_buf);
-				if (offset >= (sizeof(detail_buf) - 1U)) {
-					break;
-				}
-			}
+			snprintf(detail_buf, sizeof(detail_buf),
+				"SSID:  %s\nSTATE: NOT CONNECTED",
+				APP_WIFI_STA_SSID);
 		}
 	} else {
 		snprintf(detail_buf, sizeof(detail_buf),
-			"TIME SYNC: %s\nWIFI:      %s\nIP:        %s",
+			"TIME SYNC: %s\nWIFI:      %s\nIP:        %s\nTODO:      %s\nLAST:      %s",
 			net_status.time_synced ? "OK" : "WAIT",
 			net_status.wifi_connected ? "ONLINE" : "OFFLINE",
-			net_status.ip_addr[0] != '\0' ? net_status.ip_addr : "--");
+			net_status.ip_addr[0] != '\0' ? net_status.ip_addr : "--",
+			todo_snapshot.sync_ok ? "OK" : "WAIT",
+			todo_snapshot.last_sync_at[0] != '\0' ? todo_snapshot.last_sync_at : "--");
+	}
+
+	if (s_network_selecting) {
+		state_text = "ACTION";
 	}
 
 	snprintf(s_network_body_text, sizeof(s_network_body_text),
 		"MODULE: %s\n\n%s\n\nSTATE: %s",
 		ITEMS[s_network_focus],
 		detail_buf,
-		s_network_selecting ? "SELECT PLACEHOLDER" : "MODULE");
+		state_text);
 	lv_label_set_text(s_network_body_label, s_network_body_text);
 }
 
@@ -528,10 +738,12 @@ static void display_reset_subpage_state(display_page_t page)
 		s_network_focus = 0;
 		s_network_selecting = false;
 		s_network_action_focus = 0;
-		s_network_scan_focus = 0;
 		display_update_network_page();
 	} else if (page == DISPLAY_PAGE_POWER) {
-		snprintf(s_power_body_text, sizeof(s_power_body_text), "Press K4 to confirm.");
+		lv_obj_set_style_border_width(s_power_page, 0, 0);
+		lv_obj_set_style_outline_width(s_power_page, 0, 0);
+		lv_obj_set_style_shadow_width(s_power_page, 0, 0);
+		snprintf(s_power_body_text, sizeof(s_power_body_text), "Press K4 to confirm.\n\nPress K1 to go back.");
 		lv_label_set_text(s_power_body_label, s_power_body_text);
 	}
 }
@@ -546,20 +758,28 @@ static void display_enter_page(display_page_t page)
 
 static void display_apply_page_state(void)
 {
-	const bool home = (s_current_page == DISPLAY_PAGE_HOME);
+	const bool home = (s_current_page == DISPLAY_PAGE_HOME) && !s_minimal_mode;
 
 	set_obj_hidden(s_top_row, !home);
 	set_obj_hidden(s_env_panel, !home);
 	set_obj_hidden(s_tips_panel, !home);
 	set_obj_hidden(s_alarm_panel, !home);
 	set_obj_hidden(s_todo_panel, !home);
+	set_obj_hidden(s_key_panel, s_minimal_mode || (s_current_page == DISPLAY_PAGE_POWER && !s_alarm_ringing));
+	if (s_key_panel != NULL && !s_minimal_mode && !(s_current_page == DISPLAY_PAGE_POWER && !s_alarm_ringing)) {
+		lv_obj_move_foreground(s_key_panel);
+		lv_obj_set_style_border_width(s_key_panel, 0, 0);
+		lv_obj_set_style_outline_width(s_key_panel, 0, 0);
+		lv_obj_set_style_shadow_width(s_key_panel, 0, 0);
+		lv_obj_set_style_bg_color(s_key_panel, lv_color_hex(0x000000), 0);
+		lv_obj_set_style_bg_opa(s_key_panel, home ? LV_OPA_TRANSP : LV_OPA_COVER, 0);
+	}
 	set_obj_hidden(s_settings_page, s_current_page != DISPLAY_PAGE_SETTINGS);
 	set_obj_hidden(s_alarm_page, s_current_page != DISPLAY_PAGE_ALARM);
 	set_obj_hidden(s_network_page, s_current_page != DISPLAY_PAGE_NETWORK);
 	set_obj_hidden(s_power_page, s_current_page != DISPLAY_PAGE_POWER);
 
 	if (home) {
-		set_obj_hidden(s_key_panel, false);
 		lv_label_set_text(s_key1_label, "Set");
 		lv_label_set_text(s_key2_label, "Alm");
 		lv_label_set_text(s_key3_label, "Net");
@@ -567,7 +787,13 @@ static void display_apply_page_state(void)
 		return;
 	}
 
-	set_obj_hidden(s_key_panel, false);
+	if (s_minimal_mode) {
+		return;
+	}
+
+	if (!(s_current_page == DISPLAY_PAGE_POWER && !s_alarm_ringing)) {
+		set_obj_hidden(s_key_panel, false);
+	}
 
 	if (s_current_page == DISPLAY_PAGE_SETTINGS) {
 		if (s_settings_editing) {
@@ -624,10 +850,25 @@ static void display_apply_page_state(void)
 		return;
 	}
 
+	if (s_current_page == DISPLAY_PAGE_POWER) {
+		if (s_alarm_ringing) {
+			lv_label_set_text(s_key1_label, "Stop");
+			lv_label_set_text(s_key2_label, "Stop");
+			lv_label_set_text(s_key3_label, "Stop");
+			lv_label_set_text(s_key4_label, "Stop");
+		} else {
+			lv_label_set_text(s_key1_label, "Back");
+			lv_label_set_text(s_key2_label, "Back");
+			lv_label_set_text(s_key3_label, "Confirm");
+			lv_label_set_text(s_key4_label, "Confirm");
+		}
+		return;
+	}
+
 	lv_label_set_text(s_key1_label, "Back");
 	lv_label_set_text(s_key2_label, "");
 	lv_label_set_text(s_key3_label, "");
-	lv_label_set_text(s_key4_label, "Confirm");
+	lv_label_set_text(s_key4_label, "");
 }
 
 static void display_process_key_press(size_t key_index)
@@ -672,17 +913,18 @@ static void display_process_key_press(size_t key_index)
 				}
 				display_update_settings_page();
 				break;
-			case 2:
-				if (s_settings_focus == 2U) {
-					s_setting_volume = s_settings_edit_value;
-				} else if (s_settings_focus == 3U) {
-					s_setting_env_sample_s = s_settings_edit_value;
-				} else if (s_settings_focus == 4U) {
-					s_setting_repeat_count = s_settings_edit_value;
-				}
-				s_settings_editing = false;
-				display_update_settings_page();
-				break;
+				case 2:
+					if (s_settings_focus == 2U) {
+						s_setting_volume = s_settings_edit_value;
+						(void)audio_service_set_volume(s_setting_volume);
+					} else if (s_settings_focus == 3U) {
+						s_setting_env_sample_s = s_settings_edit_value;
+					} else if (s_settings_focus == 4U) {
+						s_setting_repeat_count = s_settings_edit_value;
+					}
+					s_settings_editing = false;
+					display_update_settings_page();
+					break;
 			case 3:
 				s_settings_editing = false;
 				display_update_settings_page();
@@ -700,13 +942,13 @@ static void display_process_key_press(size_t key_index)
 				s_settings_focus = (uint8_t)((s_settings_focus + 1U) % 5U);
 				display_update_settings_page();
 				break;
-			case 2:
-				if (s_settings_focus == 0U) {
-					s_setting_sound_on = !s_setting_sound_on;
-				} else if (s_settings_focus == 1U) {
-					s_setting_audio_on = !s_setting_audio_on;
-				} else {
-					s_settings_editing = true;
+				case 2:
+					if (s_settings_focus == 0U) {
+						s_setting_sound_on = !s_setting_sound_on;
+					} else if (s_settings_focus == 1U) {
+						s_setting_audio_on = !s_setting_audio_on;
+					} else {
+						s_settings_editing = true;
 					if (s_settings_focus == 2U) {
 						s_settings_edit_value = s_setting_volume;
 					} else if (s_settings_focus == 3U) {
@@ -880,51 +1122,26 @@ static void display_process_key_press(size_t key_index)
 		}
 	} else if (s_current_page == DISPLAY_PAGE_NETWORK) {
 		if (s_network_selecting) {
-			if (s_network_focus == 1U) {
-				switch (key_index) {
-				case 0:
-					s_network_action_focus = (uint8_t)((s_network_action_focus + 1U) % 2U);
-					display_update_network_page();
-					break;
-				case 1:
-					s_network_action_focus = (uint8_t)((s_network_action_focus + 1U) % 2U);
-					display_update_network_page();
-					break;
-				case 2:
-					if (s_network_action_focus == 0U) {
-						(void)net_service_request_scan();
-						s_network_focus = 2U;
-						s_network_selecting = true;
-						s_network_scan_focus = 0;
-					} else {
-						s_network_selecting = false;
-					}
-					display_update_network_page();
-					break;
-				case 3:
-					s_network_selecting = false;
-					display_update_network_page();
-					break;
-				default:
-					break;
-				}
-			} else if (s_network_focus == 2U) {
-				app_net_scan_snapshot_t scan_snapshot = { 0 };
-				(void)net_service_get_scan_snapshot(&scan_snapshot);
-				switch (key_index) {
-				case 0:
-					if (scan_snapshot.count > 0U) {
-						s_network_scan_focus = (uint8_t)((s_network_scan_focus + scan_snapshot.count - 1U) % scan_snapshot.count);
-						display_update_network_page();
-					}
-					break;
-				case 1:
-					if (scan_snapshot.count > 0U) {
-						s_network_scan_focus = (uint8_t)((s_network_scan_focus + 1U) % scan_snapshot.count);
-						display_update_network_page();
-					}
-					break;
-				case 2:
+					if (s_network_focus == 1U) {
+						switch (key_index) {
+						case 0:
+							s_network_action_focus = (uint8_t)((s_network_action_focus + 2U) % 3U);
+							display_update_network_page();
+							break;
+						case 1:
+							s_network_action_focus = (uint8_t)((s_network_action_focus + 1U) % 3U);
+							display_update_network_page();
+							break;
+					case 2:
+						if (s_network_action_focus == 0U) {
+							(void)net_service_request_connect_now();
+							s_network_selecting = false;
+						} else if (s_network_action_focus == 1U) {
+							(void)net_service_request_todo_sync_now();
+							s_network_selecting = false;
+						} else {
+							s_network_selecting = false;
+						}
 					display_update_network_page();
 					break;
 				case 3:
@@ -948,11 +1165,11 @@ static void display_process_key_press(size_t key_index)
 				s_network_focus = (uint8_t)((s_network_focus + 1U) % 4U);
 				display_update_network_page();
 				break;
-			case 2:
-				if (s_network_focus == 1U || s_network_focus == 2U) {
-					s_network_selecting = true;
-				}
-				display_update_network_page();
+				case 2:
+					if (s_network_focus == 1U) {
+						s_network_selecting = true;
+					}
+					display_update_network_page();
 				break;
 			case 3:
 				s_current_page = DISPLAY_PAGE_HOME;
@@ -1155,21 +1372,42 @@ static void display_build_boot_screen(void)
 	set_obj_hidden(s_power_page, true);
 
 	s_last_time_text[0] = '\0';
+	s_last_sound_text[0] = '\0';
+	s_last_audio_text[0] = '\0';
 	s_last_date_text[0] = '\0';
 	s_last_time_state_text[0] = '\0';
 	s_last_presence_text[0] = '\0';
 	s_last_temp_text[0] = '\0';
 	s_last_humi_text[0] = '\0';
 	s_last_lux_text[0] = '\0';
+	s_last_todo_item_1_text[0] = '\0';
+	s_last_todo_item_2_text[0] = '\0';
+	s_last_todo_item_3_text[0] = '\0';
+	s_last_todo_more_text[0] = '\0';
 	s_setting_sound_on = true;
 	s_setting_audio_on = false;
 	s_setting_volume = 6;
+	(void)audio_service_set_volume(s_setting_volume);
 	s_setting_env_sample_s = 1;
 	s_setting_repeat_count = 2;
 	s_alarm_items[0] = (display_alarm_item_t){ .hour = 7, .minute = 30, .second = 0, .repeat = true, .enabled = true };
 	s_alarm_items[1] = (display_alarm_item_t){ .hour = 8, .minute = 0, .second = 0, .repeat = true, .enabled = true };
 	s_alarm_items[2] = (display_alarm_item_t){ .hour = 20, .minute = 15, .second = 0, .repeat = false, .enabled = true };
 	s_alarm_count = 3;
+	s_alarm_ringing = false;
+	s_alarm_ring_remaining = 0;
+	s_alarm_ring_last_second = 255U;
+	s_alarm_ring_last_play_us = 0;
+	s_minimal_mode = false;
+	s_minimal_greeted = false;
+	s_env_notice_armed = true;
+	s_boot_started_us = esp_timer_get_time();
+	s_last_presence_detected_us = esp_timer_get_time();
+	s_presence_session_started_us = 0;
+	s_presence_last_absent_us = 0;
+	s_last_user_input_us = esp_timer_get_time();
+	s_last_env_notice_us = 0;
+	s_last_rest_notice_us = 0;
 	display_reset_subpage_state(DISPLAY_PAGE_SETTINGS);
 	display_reset_subpage_state(DISPLAY_PAGE_ALARM);
 	display_reset_subpage_state(DISPLAY_PAGE_NETWORK);
@@ -1184,9 +1422,17 @@ static void display_update_labels(void)
 	char date_buf[32];
 	char env_buf[96];
 	app_environment_snapshot_t snapshot = { 0 };
+	app_todo_snapshot_t todo_snapshot = { 0 };
 	struct tm timeinfo = { 0 };
 	const bool system_time_valid = get_display_time(&timeinfo);
-	const bool detected = presence_service_is_present_hint();
+	app_presence_status_t presence_status = { 0 };
+	(void)presence_service_get_status(&presence_status);
+	(void)net_service_get_todo_snapshot(&todo_snapshot);
+	const bool detected = presence_status.detected;
+
+	display_update_minimal_mode(detected, presence_status.radar_healthy);
+	display_maybe_play_rest_notice(detected, presence_status.radar_healthy);
+	display_update_alarm_runtime(&timeinfo, system_time_valid);
 
 	snprintf(time_buf, sizeof(time_buf), "%02d:%02d:%02d",
 		timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
@@ -1198,10 +1444,15 @@ static void display_update_labels(void)
 		system_time_valid ? "" : "UNSYNC");
 	set_label_text_if_changed(s_presence_label, s_last_presence_text, sizeof(s_last_presence_text),
 		detected ? "DETECTED" : "");
-	lv_label_set_text(s_sound_label, s_setting_sound_on ? "SND ON" : "SND OFF");
-	lv_label_set_text(s_audio_label, s_setting_audio_on ? "AUD ON" : "AUD OFF");
+	set_label_text_if_changed(s_sound_label, s_last_sound_text, sizeof(s_last_sound_text),
+		s_setting_sound_on ? "SND ON" : "SND OFF");
+	set_label_text_if_changed(s_audio_label, s_last_audio_text, sizeof(s_last_audio_text),
+		s_setting_audio_on ? "AUD ON" : "AUD OFF");
+	set_label_text_if_changed(s_tips_text_label, s_env_notice_text, sizeof(s_env_notice_text),
+		s_env_notice_text[0] != '\0' ? s_env_notice_text : "NORMAL");
 
 	if (environment_service_get_snapshot(&snapshot)) {
+		display_maybe_play_env_notice(&snapshot);
 		snprintf(env_buf, sizeof(env_buf), "T-%s%.0fC",
 			snapshot.dht11_valid ? "" : "-",
 			snapshot.dht11_valid ? snapshot.temperature_c : 0.0f);
@@ -1218,6 +1469,34 @@ static void display_update_labels(void)
 		set_label_text_if_changed(s_temp_label, s_last_temp_text, sizeof(s_last_temp_text), "T--C");
 		set_label_text_if_changed(s_humi_label, s_last_humi_text, sizeof(s_last_humi_text), "H--%");
 		set_label_text_if_changed(s_lux_label, s_last_lux_text, sizeof(s_last_lux_text), "L--");
+	}
+
+	if (todo_snapshot.count > 0U) {
+		set_label_text_if_changed(s_todo_item_1_label, s_last_todo_item_1_text, sizeof(s_last_todo_item_1_text),
+			todo_snapshot.items[0].text);
+		if (todo_snapshot.count > 1U) {
+			set_label_text_if_changed(s_todo_item_2_label, s_last_todo_item_2_text, sizeof(s_last_todo_item_2_text),
+				todo_snapshot.items[1].text);
+		} else {
+			set_label_text_if_changed(s_todo_item_2_label, s_last_todo_item_2_text, sizeof(s_last_todo_item_2_text), "");
+		}
+		if (todo_snapshot.count > 2U) {
+			set_label_text_if_changed(s_todo_more_label, s_last_todo_item_3_text, sizeof(s_last_todo_item_3_text),
+				todo_snapshot.items[2].text);
+		} else {
+			set_label_text_if_changed(s_todo_more_label, s_last_todo_item_3_text, sizeof(s_last_todo_item_3_text), "");
+		}
+		if (todo_snapshot.count > 3U) {
+			snprintf(env_buf, sizeof(env_buf), "+%u", (unsigned)(todo_snapshot.count - 3U));
+			set_label_text_if_changed(s_env_label, s_last_todo_more_text, sizeof(s_last_todo_more_text), env_buf);
+		} else {
+			set_label_text_if_changed(s_env_label, s_last_todo_more_text, sizeof(s_last_todo_more_text), "");
+		}
+	} else {
+		set_label_text_if_changed(s_todo_item_1_label, s_last_todo_item_1_text, sizeof(s_last_todo_item_1_text), "No todo");
+		set_label_text_if_changed(s_todo_item_2_label, s_last_todo_item_2_text, sizeof(s_last_todo_item_2_text), "");
+		set_label_text_if_changed(s_todo_more_label, s_last_todo_item_3_text, sizeof(s_last_todo_item_3_text), "");
+		set_label_text_if_changed(s_env_label, s_last_todo_more_text, sizeof(s_last_todo_more_text), "");
 	}
 }
 
@@ -1466,6 +1745,18 @@ void display_service_handle_key_press(size_t key_index)
 {
 	if (!s_ready || s_key_event_queue == NULL) {
 		return;
+	}
+
+	s_last_user_input_us = esp_timer_get_time();
+	if (s_alarm_ringing) {
+		s_alarm_ringing = false;
+		s_alarm_ring_remaining = 0;
+		s_current_page = DISPLAY_PAGE_HOME;
+		display_apply_page_state();
+		return;
+	}
+	if (s_minimal_mode) {
+		display_exit_minimal_mode(false);
 	}
 
 	(void)xQueueSend(s_key_event_queue, &key_index, 0);

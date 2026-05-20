@@ -58,12 +58,12 @@
 
 ### 1.5 提醒与音频通知域 (Reminder & Audio Notification Domain)
 
-负责：管理闹钟、代办、报时、环境建议、休息提醒和语音播放仲裁。
+负责：管理闹钟、代办、环境建议、休息提醒和语音播放仲裁。
 
 - reminder registry
   - 维护闹钟配置、代办提醒条件和播报策略的运行态视图。
 - reminder evaluator
-  - 在时间有效前提下判定报时、闹钟、代办和休息提醒是否到达触发条件。
+  - 在时间有效前提下判定闹钟、代办和休息提醒是否到达触发条件。
 - voice policy
   - 根据用户偏好、冷却窗口和会话状态判断某类语音是否允许进入调度。
 - voice arbiter
@@ -154,7 +154,7 @@
 | :--- | :--- | :--- | :--- |
 | environment state | reminder evaluator | state | 环境异常判断所需快照 |
 | time validity gate | reminder evaluator | state | 当前是否允许绝对时间提醒 |
-| reminder registry | reminder evaluator | state | 闹钟、报时、代办提醒配置 |
+| reminder registry | reminder evaluator | state | 闹钟、代办提醒配置 |
 | reminder evaluator | voice policy | trigger | 某类提醒到达候选触发条件 |
 | voice policy | voice arbiter | command | 允许进入调度的语音请求 |
 | voice arbiter | audio presenter | command | 按优先级下发的可播报语音项目 |
@@ -185,7 +185,7 @@
 | presence_session_view | 当前会话是否已问候、累计在位时长和离开宽限状态 | 会话期 | presence session tracker | voice policy、reminder evaluator | presence session tracker |
 | ui_render_model | 当前页面所需的完整显示视图 | 最新有效 | ui model | display presenter | ui model |
 | settings_snapshot | 用户配置的最新有效视图，包括亮度、音量、采样周期、语音偏好和闹钟配置 | 最新有效 | settings model | backlight policy、voice policy、environment sampler、reminder registry、shell capability | settings model |
-| reminder_registry_view | 当前有效闹钟、报时、代办提醒及其启停状态 | 最新有效 | reminder registry | reminder evaluator、ui model | reminder registry |
+| reminder_registry_view | 当前有效闹钟、代办提醒及其启停状态 | 最新有效 | reminder registry | reminder evaluator、ui model | reminder registry |
 | todo_cache_view | 最近一次成功同步的代办缓存和同步状态摘要 | 最新有效 | todo sync controller | reminder registry、ui model | reminder registry |
 | voice_request | 某条待播报语音请求及其业务语义 | 瞬时 | voice policy | voice arbiter | 无长期拥有者 |
 | active_notification_state | 当前播报中、排队中或待用户处理的提醒摘要 | 最新有效 | voice arbiter | ui model、shell capability | voice arbiter |
@@ -247,7 +247,7 @@
 ### 6.5 联网与时间服务域约束
 
 - Wi-Fi 会话、网络校时和云端代办同步必须通过 remote sync policy 协调，不允许多个单元直接争用同一网络窗口。
-- time sync controller 只负责建立和修正时间基线，不直接管理闹钟、代办或报时业务规则。
+- time sync controller 只负责建立和修正时间基线，不直接管理闹钟或代办业务规则。
 - todo sync controller 只维护远端代办同步结果和本地缓存，不直接决定播报优先级。
 
 ### 6.6 提醒与音频通知域约束

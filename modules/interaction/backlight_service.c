@@ -84,7 +84,7 @@ int backlight_service_init(void)
 
 int backlight_service_start(void)
 {
-	return backlight_apply_percent(35);
+	return backlight_apply_percent(15);
 }
 
 int backlight_service_stop(void)

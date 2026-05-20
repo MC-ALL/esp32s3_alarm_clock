@@ -46,7 +46,6 @@
 | F07 | UART / GPIO / FreeRTOS Timing |
 | F08 | GPIO / I2S |
 | F09 | GPIO / I2C / I2S / NVS |
-| F10 | FreeRTOS Timing / I2S |
 | F11 | FreeRTOS Timing / GPIO / I2S |
 | F12 | I2S / NVS |
 | F13 | GPIO / LVGL / NVS |

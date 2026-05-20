@@ -6,6 +6,7 @@
 #include <driver/i2s_std.h>
 #include <esp_err.h>
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
@@ -16,53 +17,186 @@ static const char *TAG = "audio";
 static i2s_chan_handle_t s_tx_handle;
 static QueueHandle_t s_audio_queue;
 static TaskHandle_t s_audio_task;
+static uint8_t s_volume = 6;
+static int64_t s_audio_blocked_until_us;
+static volatile bool s_audio_busy;
 
 typedef struct {
-	uint32_t frequency_hz;
-	uint32_t duration_ms;
+	app_audio_event_t event_id;
+	const uint8_t *wav_data;
+	size_t wav_size;
 } app_audio_request_t;
 
-static void audio_fill_square_wave(int16_t *buffer, size_t sample_count,
-	uint32_t sample_rate_hz, uint32_t frequency_hz)
+typedef struct {
+	const uint8_t *data;
+	const uint8_t *end;
+} app_audio_clip_t;
+
+extern const uint8_t welcome_wav_start[] asm("_binary_welcome_wav_start");
+extern const uint8_t welcome_wav_end[] asm("_binary_welcome_wav_end");
+extern const uint8_t connected_wav_start[] asm("_binary_connected_wav_start");
+extern const uint8_t connected_wav_end[] asm("_binary_connected_wav_end");
+extern const uint8_t env_light_low_wav_start[] asm("_binary_env_light_low_wav_start");
+extern const uint8_t env_light_low_wav_end[] asm("_binary_env_light_low_wav_end");
+extern const uint8_t env_light_high_wav_start[] asm("_binary_env_light_high_wav_start");
+extern const uint8_t env_light_high_wav_end[] asm("_binary_env_light_high_wav_end");
+extern const uint8_t env_temp_low_wav_start[] asm("_binary_env_temp_low_wav_start");
+extern const uint8_t env_temp_low_wav_end[] asm("_binary_env_temp_low_wav_end");
+extern const uint8_t env_temp_high_wav_start[] asm("_binary_env_temp_high_wav_start");
+extern const uint8_t env_temp_high_wav_end[] asm("_binary_env_temp_high_wav_end");
+extern const uint8_t env_humi_low_wav_start[] asm("_binary_env_humi_low_wav_start");
+extern const uint8_t env_humi_low_wav_end[] asm("_binary_env_humi_low_wav_end");
+extern const uint8_t env_humi_high_wav_start[] asm("_binary_env_humi_high_wav_start");
+extern const uint8_t env_humi_high_wav_end[] asm("_binary_env_humi_high_wav_end");
+extern const uint8_t rest_reminder_wav_start[] asm("_binary_rest_reminder_wav_start");
+extern const uint8_t rest_reminder_wav_end[] asm("_binary_rest_reminder_wav_end");
+extern const uint8_t clock_wav_start[] asm("_binary_clock_wav_start");
+extern const uint8_t clock_wav_end[] asm("_binary_clock_wav_end");
+
+static const app_audio_clip_t APP_CLIP_WELCOME = {
+	.data = welcome_wav_start,
+	.end = welcome_wav_end,
+};
+static const app_audio_clip_t APP_CLIP_CONNECTED = {
+	.data = connected_wav_start,
+	.end = connected_wav_end,
+};
+static const app_audio_clip_t APP_CLIP_ENV_LIGHT_LOW = {
+	.data = env_light_low_wav_start,
+	.end = env_light_low_wav_end,
+};
+static const app_audio_clip_t APP_CLIP_ENV_LIGHT_HIGH = {
+	.data = env_light_high_wav_start,
+	.end = env_light_high_wav_end,
+};
+static const app_audio_clip_t APP_CLIP_ENV_TEMP_LOW = {
+	.data = env_temp_low_wav_start,
+	.end = env_temp_low_wav_end,
+};
+static const app_audio_clip_t APP_CLIP_ENV_TEMP_HIGH = {
+	.data = env_temp_high_wav_start,
+	.end = env_temp_high_wav_end,
+};
+static const app_audio_clip_t APP_CLIP_ENV_HUMI_LOW = {
+	.data = env_humi_low_wav_start,
+	.end = env_humi_low_wav_end,
+};
+static const app_audio_clip_t APP_CLIP_ENV_HUMI_HIGH = {
+	.data = env_humi_high_wav_start,
+	.end = env_humi_high_wav_end,
+};
+static const app_audio_clip_t APP_CLIP_REST = {
+	.data = rest_reminder_wav_start,
+	.end = rest_reminder_wav_end,
+};
+static const app_audio_clip_t APP_CLIP_ALARM = {
+	.data = clock_wav_start,
+	.end = clock_wav_end,
+};
+
+static uint32_t audio_read_le32(const uint8_t *data)
 {
-	if (frequency_hz == 0U) {
-		memset(buffer, 0, sample_count * sizeof(int16_t));
-		return;
+	return (uint32_t)data[0] | ((uint32_t)data[1] << 8) | ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 24);
+}
+
+static bool audio_find_wav_payload(const uint8_t *wav_data, size_t wav_size, const uint8_t **payload, size_t *payload_size)
+{
+	if (wav_data == NULL || payload == NULL || payload_size == NULL || wav_size < 44U) {
+		return false;
+	}
+	if (memcmp(wav_data, "RIFF", 4) != 0 || memcmp(&wav_data[8], "WAVE", 4) != 0) {
+		return false;
 	}
 
-	const uint32_t period_samples = sample_rate_hz / frequency_hz;
-	const uint32_t high_samples = period_samples > 1U ? (period_samples / 2U) : 1U;
+	size_t offset = 12U;
+	while ((offset + 8U) <= wav_size) {
+		const uint8_t *chunk = &wav_data[offset];
+		const uint32_t chunk_size = audio_read_le32(&chunk[4]);
+		if ((offset + 8U + chunk_size) > wav_size) {
+			return false;
+		}
+		if (memcmp(chunk, "data", 4) == 0) {
+			*payload = &chunk[8];
+			*payload_size = chunk_size;
+			return true;
+		}
+		offset += 8U + chunk_size + (chunk_size & 1U);
+	}
 
+	return false;
+}
+
+static void audio_apply_volume(int16_t *samples, size_t sample_count)
+{
 	for (size_t i = 0; i < sample_count; i++) {
-		const uint32_t phase = period_samples > 0U ? (uint32_t)(i % period_samples) : 0U;
-		buffer[i] = (phase < high_samples) ? 12000 : -12000;
+		int32_t scaled = ((int32_t)samples[i] * (int32_t)s_volume) / 10;
+		if (scaled > INT16_MAX) {
+			scaled = INT16_MAX;
+		} else if (scaled < INT16_MIN) {
+			scaled = INT16_MIN;
+		}
+		samples[i] = (int16_t)scaled;
 	}
 }
 
-static int audio_play_square_wave(uint32_t frequency_hz, uint32_t duration_ms)
+static int audio_play_wav_pcm(const uint8_t *wav_data, size_t wav_size)
 {
-	static const uint32_t sample_rate_hz = 16000;
-	int16_t buffer[512];
+	const uint8_t *payload = NULL;
+	size_t payload_size = 0;
+	if (!audio_find_wav_payload(wav_data, wav_size, &payload, &payload_size)) {
+		ESP_LOGE(TAG, "invalid wav payload");
+		return -1;
+	}
+
+	const int16_t *samples = (const int16_t *)payload;
+	size_t sample_count = payload_size / sizeof(int16_t);
 	size_t bytes_written = 0;
-	uint32_t remaining_ms = duration_ms;
+	int16_t chunk[256];
 
-	while (remaining_ms > 0U) {
-		const uint32_t chunk_ms = remaining_ms > 32U ? 32U : remaining_ms;
-		const size_t sample_count = (sample_rate_hz * chunk_ms) / 1000U;
-		const size_t byte_count = sample_count * sizeof(int16_t);
-
-		audio_fill_square_wave(buffer, sample_count, sample_rate_hz, frequency_hz);
-
-		esp_err_t err = i2s_channel_write(s_tx_handle, buffer, byte_count, &bytes_written, 100);
+	while (sample_count > 0U) {
+		const size_t chunk_samples = sample_count > 256U ? 256U : sample_count;
+		memcpy(chunk, samples, chunk_samples * sizeof(int16_t));
+		audio_apply_volume(chunk, chunk_samples);
+		esp_err_t err = i2s_channel_write(s_tx_handle, chunk, chunk_samples * sizeof(int16_t), &bytes_written, 1000);
 		if (err != ESP_OK) {
 			ESP_LOGE(TAG, "i2s_channel_write failed: %s", esp_err_to_name(err));
 			return (int)err;
 		}
-
-		remaining_ms -= chunk_ms;
+		samples += chunk_samples;
+		sample_count -= chunk_samples;
 	}
 
 	return 0;
+}
+
+static const app_audio_clip_t *audio_get_clip(app_audio_event_t event_id)
+{
+	switch (event_id) {
+	case APP_AUDIO_EVENT_WELCOME:
+		return &APP_CLIP_WELCOME;
+	case APP_AUDIO_EVENT_WIFI_CONNECTED:
+		return &APP_CLIP_CONNECTED;
+	case APP_AUDIO_EVENT_ENV_LIGHT_LOW:
+		return &APP_CLIP_ENV_LIGHT_LOW;
+	case APP_AUDIO_EVENT_ENV_LIGHT_HIGH:
+		return &APP_CLIP_ENV_LIGHT_HIGH;
+	case APP_AUDIO_EVENT_ENV_TEMP_LOW:
+		return &APP_CLIP_ENV_TEMP_LOW;
+	case APP_AUDIO_EVENT_ENV_TEMP_HIGH:
+		return &APP_CLIP_ENV_TEMP_HIGH;
+	case APP_AUDIO_EVENT_ENV_HUMI_LOW:
+		return &APP_CLIP_ENV_HUMI_LOW;
+	case APP_AUDIO_EVENT_ENV_HUMI_HIGH:
+		return &APP_CLIP_ENV_HUMI_HIGH;
+	case APP_AUDIO_EVENT_REST_REMINDER:
+		return &APP_CLIP_REST;
+	case APP_AUDIO_EVENT_ALARM:
+		return &APP_CLIP_ALARM;
+	case APP_AUDIO_EVENT_CONFIRM:
+	case APP_AUDIO_EVENT_TEST:
+	default:
+		return NULL;
+	}
 }
 
 static void audio_task(void *arg)
@@ -75,9 +209,11 @@ static void audio_task(void *arg)
 			continue;
 		}
 
-		ESP_LOGI(TAG, "play tone freq=%" PRIu32 "Hz dur=%" PRIu32 "ms",
-			request.frequency_hz, request.duration_ms);
-		(void)audio_play_square_wave(request.frequency_hz, request.duration_ms);
+		s_audio_busy = true;
+		ESP_LOGI(TAG, "play event=%d size=%u", (int)request.event_id, (unsigned)request.wav_size);
+		(void)audio_play_wav_pcm(request.wav_data, request.wav_size);
+		s_audio_busy = false;
+		s_audio_blocked_until_us = esp_timer_get_time() + 3000000LL;
 	}
 }
 
@@ -137,7 +273,6 @@ int audio_service_start(void)
 		return -1;
 	}
 
-	(void)audio_service_play_test_tone(880, 160);
 	return 0;
 }
 
@@ -162,15 +297,19 @@ int audio_service_stop(void)
 	return 0;
 }
 
-int audio_service_play_test_tone(uint32_t frequency_hz, uint32_t duration_ms)
+static int audio_service_queue_event(app_audio_event_t event_id, const uint8_t *wav_data, size_t wav_size)
 {
-	if (s_audio_queue == NULL) {
+	if (s_audio_queue == NULL || wav_data == NULL || wav_size == 0U) {
+		return -1;
+	}
+	if (esp_timer_get_time() < s_audio_blocked_until_us) {
 		return -1;
 	}
 
 	const app_audio_request_t request = {
-		.frequency_hz = frequency_hz,
-		.duration_ms = duration_ms,
+		.event_id = event_id,
+		.wav_data = wav_data,
+		.wav_size = wav_size,
 	};
 
 	if (xQueueSend(s_audio_queue, &request, 0) != pdTRUE) {
@@ -179,4 +318,41 @@ int audio_service_play_test_tone(uint32_t frequency_hz, uint32_t duration_ms)
 	}
 
 	return 0;
+}
+
+int audio_service_play_test_tone(uint32_t frequency_hz, uint32_t duration_ms)
+{
+	(void)frequency_hz;
+	(void)duration_ms;
+	return -1;
+}
+
+int audio_service_play_event(app_audio_event_t event_id)
+{
+	const app_audio_clip_t *clip = audio_get_clip(event_id);
+	if (clip == NULL) {
+		return -1;
+	}
+
+	return audio_service_queue_event(event_id, clip->data, (size_t)(clip->end - clip->data));
+}
+
+bool audio_service_is_busy(void)
+{
+	return s_audio_busy;
+}
+
+int audio_service_set_volume(uint8_t volume)
+{
+	if (volume > 10U) {
+		volume = 10U;
+	}
+
+	s_volume = volume;
+	return 0;
+}
+
+uint8_t audio_service_get_volume(void)
+{
+	return s_volume;
 }
