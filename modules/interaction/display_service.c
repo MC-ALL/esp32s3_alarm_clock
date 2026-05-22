@@ -191,7 +191,54 @@ static lv_disp_drv_t s_lvgl_drv;
 #define APP_TEXT_FONT LV_FONT_DEFAULT
 #endif
 
-#define APP_SMALL_FONT LV_FONT_DEFAULT
+#ifndef LV_SYMBOL_SETTINGS
+#define LV_SYMBOL_SETTINGS "Set"
+#endif
+#ifndef LV_SYMBOL_BELL
+#define LV_SYMBOL_BELL "Alm"
+#endif
+#ifndef LV_SYMBOL_WIFI
+#define LV_SYMBOL_WIFI "Net"
+#endif
+#ifndef LV_SYMBOL_POWER
+#define LV_SYMBOL_POWER "Pwr"
+#endif
+#ifndef LV_SYMBOL_UP
+#define LV_SYMBOL_UP "Up"
+#endif
+#ifndef LV_SYMBOL_DOWN
+#define LV_SYMBOL_DOWN "Down"
+#endif
+#ifndef LV_SYMBOL_LEFT
+#define LV_SYMBOL_LEFT "Back"
+#endif
+#ifndef LV_SYMBOL_RIGHT
+#define LV_SYMBOL_RIGHT "Next"
+#endif
+#ifndef LV_SYMBOL_OK
+#define LV_SYMBOL_OK "OK"
+#endif
+#ifndef LV_SYMBOL_SAVE
+#define LV_SYMBOL_SAVE "Save"
+#endif
+#ifndef LV_SYMBOL_EDIT
+#define LV_SYMBOL_EDIT "Edit"
+#endif
+#ifndef LV_SYMBOL_PLUS
+#define LV_SYMBOL_PLUS "+"
+#endif
+#ifndef LV_SYMBOL_MINUS
+#define LV_SYMBOL_MINUS "-"
+#endif
+#ifndef LV_SYMBOL_TRASH
+#define LV_SYMBOL_TRASH "Del"
+#endif
+#ifndef LV_SYMBOL_STOP
+#define LV_SYMBOL_STOP "Stop"
+#endif
+#ifndef LV_SYMBOL_HOME
+#define LV_SYMBOL_HOME "Home"
+#endif
 
 static uint16_t s_frame_buffer[APP_LCD_WIDTH * 20];
 static lv_color_t s_lvgl_buf1[APP_LCD_WIDTH * 20];
@@ -285,9 +332,10 @@ static void style_body_text(lv_obj_t *obj)
 	lv_obj_set_style_text_font(obj, APP_TEXT_FONT, 0);
 }
 
-static void style_small_text(lv_obj_t *obj)
+static void style_key_text(lv_obj_t *obj)
 {
-	lv_obj_set_style_text_font(obj, APP_SMALL_FONT, 0);
+	lv_obj_set_style_text_font(obj, APP_TEXT_FONT, 0);
+	lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_CENTER, 0);
 }
 
 static void style_text_row_panel(lv_obj_t *obj)
@@ -844,10 +892,10 @@ static void display_apply_page_state(void)
 	set_obj_hidden(s_power_page, s_current_page != DISPLAY_PAGE_POWER);
 
 	if (home) {
-		lv_label_set_text(s_key1_label, "Set");
-		lv_label_set_text(s_key2_label, "Alm");
-		lv_label_set_text(s_key3_label, "Net");
-		lv_label_set_text(s_key4_label, "Pwr");
+		lv_label_set_text(s_key1_label, LV_SYMBOL_SETTINGS);
+		lv_label_set_text(s_key2_label, LV_SYMBOL_BELL);
+		lv_label_set_text(s_key3_label, LV_SYMBOL_WIFI);
+		lv_label_set_text(s_key4_label, LV_SYMBOL_POWER);
 		return;
 	}
 
@@ -861,75 +909,75 @@ static void display_apply_page_state(void)
 
 	if (s_current_page == DISPLAY_PAGE_SETTINGS) {
 		if (s_settings_editing) {
-			lv_label_set_text(s_key1_label, "Inc");
-			lv_label_set_text(s_key2_label, "Dec");
-			lv_label_set_text(s_key3_label, "Save");
-			lv_label_set_text(s_key4_label, "Back");
+			lv_label_set_text(s_key1_label, LV_SYMBOL_PLUS);
+			lv_label_set_text(s_key2_label, LV_SYMBOL_MINUS);
+			lv_label_set_text(s_key3_label, LV_SYMBOL_SAVE);
+			lv_label_set_text(s_key4_label, LV_SYMBOL_LEFT);
 		} else {
-			lv_label_set_text(s_key1_label, "Up");
-			lv_label_set_text(s_key2_label, "Down");
-			lv_label_set_text(s_key3_label, "Change");
-			lv_label_set_text(s_key4_label, "Home");
+			lv_label_set_text(s_key1_label, LV_SYMBOL_UP);
+			lv_label_set_text(s_key2_label, LV_SYMBOL_DOWN);
+			lv_label_set_text(s_key3_label, LV_SYMBOL_EDIT);
+			lv_label_set_text(s_key4_label, LV_SYMBOL_HOME);
 		}
 		return;
 	}
 
 	if (s_current_page == DISPLAY_PAGE_ALARM) {
 		if (s_alarm_view == ALARM_VIEW_LIST) {
-			lv_label_set_text(s_key1_label, "Up");
-			lv_label_set_text(s_key2_label, "Down");
-			lv_label_set_text(s_key3_label, "Select");
-			lv_label_set_text(s_key4_label, "Home");
+			lv_label_set_text(s_key1_label, LV_SYMBOL_UP);
+			lv_label_set_text(s_key2_label, LV_SYMBOL_DOWN);
+			lv_label_set_text(s_key3_label, LV_SYMBOL_OK);
+			lv_label_set_text(s_key4_label, LV_SYMBOL_HOME);
 		} else if (s_alarm_view == ALARM_VIEW_ACTION) {
-			lv_label_set_text(s_key1_label, "Up");
-			lv_label_set_text(s_key2_label, "Down");
-			lv_label_set_text(s_key3_label, "Apply");
-			lv_label_set_text(s_key4_label, "Back");
+			lv_label_set_text(s_key1_label, LV_SYMBOL_UP);
+			lv_label_set_text(s_key2_label, LV_SYMBOL_DOWN);
+			lv_label_set_text(s_key3_label, LV_SYMBOL_OK);
+			lv_label_set_text(s_key4_label, LV_SYMBOL_LEFT);
 		} else if (s_alarm_view == ALARM_VIEW_DELETE_CONFIRM) {
-			lv_label_set_text(s_key1_label, "Cancel");
+			lv_label_set_text(s_key1_label, LV_SYMBOL_LEFT);
 			lv_label_set_text(s_key2_label, "");
 			lv_label_set_text(s_key3_label, "");
-			lv_label_set_text(s_key4_label, "Delete");
+			lv_label_set_text(s_key4_label, LV_SYMBOL_TRASH);
 		} else {
-			lv_label_set_text(s_key1_label, "Dec");
-			lv_label_set_text(s_key2_label, "Inc");
-			lv_label_set_text(s_key3_label, "Next");
-			lv_label_set_text(s_key4_label, "Cancel");
+			lv_label_set_text(s_key1_label, LV_SYMBOL_MINUS);
+			lv_label_set_text(s_key2_label, LV_SYMBOL_PLUS);
+			lv_label_set_text(s_key3_label, LV_SYMBOL_RIGHT);
+			lv_label_set_text(s_key4_label, LV_SYMBOL_LEFT);
 		}
 		return;
 	}
 
 	if (s_current_page == DISPLAY_PAGE_NETWORK) {
 		if (s_network_selecting) {
-			lv_label_set_text(s_key1_label, "Up");
-			lv_label_set_text(s_key2_label, "Down");
-			lv_label_set_text(s_key3_label, "Apply");
-			lv_label_set_text(s_key4_label, "Back");
+			lv_label_set_text(s_key1_label, LV_SYMBOL_UP);
+			lv_label_set_text(s_key2_label, LV_SYMBOL_DOWN);
+			lv_label_set_text(s_key3_label, LV_SYMBOL_OK);
+			lv_label_set_text(s_key4_label, LV_SYMBOL_LEFT);
 		} else {
-			lv_label_set_text(s_key1_label, "Prev");
-			lv_label_set_text(s_key2_label, "Next");
-			lv_label_set_text(s_key3_label, "Select");
-			lv_label_set_text(s_key4_label, "Home");
+			lv_label_set_text(s_key1_label, LV_SYMBOL_LEFT);
+			lv_label_set_text(s_key2_label, LV_SYMBOL_RIGHT);
+			lv_label_set_text(s_key3_label, LV_SYMBOL_OK);
+			lv_label_set_text(s_key4_label, LV_SYMBOL_HOME);
 		}
 		return;
 	}
 
 	if (s_current_page == DISPLAY_PAGE_POWER) {
 		if (s_alarm_ringing) {
-			lv_label_set_text(s_key1_label, "Stop");
-			lv_label_set_text(s_key2_label, "Stop");
-			lv_label_set_text(s_key3_label, "Stop");
-			lv_label_set_text(s_key4_label, "Stop");
+			lv_label_set_text(s_key1_label, LV_SYMBOL_STOP);
+			lv_label_set_text(s_key2_label, LV_SYMBOL_STOP);
+			lv_label_set_text(s_key3_label, LV_SYMBOL_STOP);
+			lv_label_set_text(s_key4_label, LV_SYMBOL_STOP);
 		} else {
-			lv_label_set_text(s_key1_label, "Back");
-			lv_label_set_text(s_key2_label, "Back");
-			lv_label_set_text(s_key3_label, "OK");
-			lv_label_set_text(s_key4_label, "Confirm");
+			lv_label_set_text(s_key1_label, LV_SYMBOL_LEFT);
+			lv_label_set_text(s_key2_label, LV_SYMBOL_LEFT);
+			lv_label_set_text(s_key3_label, LV_SYMBOL_OK);
+			lv_label_set_text(s_key4_label, LV_SYMBOL_OK);
 		}
 		return;
 	}
 
-	lv_label_set_text(s_key1_label, "Back");
+	lv_label_set_text(s_key1_label, LV_SYMBOL_LEFT);
 	lv_label_set_text(s_key2_label, "");
 	lv_label_set_text(s_key3_label, "");
 	lv_label_set_text(s_key4_label, "");
@@ -1431,28 +1479,28 @@ static void display_build_boot_screen(void)
 	lv_obj_align_to(s_key_panel, s_todo_panel, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 6);
 
 	s_key1_label = lv_label_create(s_key_panel);
-	style_small_text(s_key1_label);
+	style_key_text(s_key1_label);
 	style_single_line_label(s_key1_label, 50);
 	lv_obj_align(s_key1_label, LV_ALIGN_LEFT_MID, 6, 0);
-	lv_label_set_text(s_key1_label, "Set");
+	lv_label_set_text(s_key1_label, LV_SYMBOL_SETTINGS);
 
 	s_key2_label = lv_label_create(s_key_panel);
-	style_small_text(s_key2_label);
+	style_key_text(s_key2_label);
 	style_single_line_label(s_key2_label, 54);
 	lv_obj_align(s_key2_label, LV_ALIGN_LEFT_MID, 64, 0);
-	lv_label_set_text(s_key2_label, "Alm");
+	lv_label_set_text(s_key2_label, LV_SYMBOL_BELL);
 
 	s_key3_label = lv_label_create(s_key_panel);
-	style_small_text(s_key3_label);
+	style_key_text(s_key3_label);
 	style_single_line_label(s_key3_label, 54);
 	lv_obj_align(s_key3_label, LV_ALIGN_LEFT_MID, 124, 0);
-	lv_label_set_text(s_key3_label, "Net");
+	lv_label_set_text(s_key3_label, LV_SYMBOL_WIFI);
 
 	s_key4_label = lv_label_create(s_key_panel);
-	style_small_text(s_key4_label);
+	style_key_text(s_key4_label);
 	style_single_line_label(s_key4_label, 56);
 	lv_obj_align(s_key4_label, LV_ALIGN_LEFT_MID, 184, 0);
-	lv_label_set_text(s_key4_label, "Pwr");
+	lv_label_set_text(s_key4_label, LV_SYMBOL_POWER);
 
 	build_subpage_container(&s_settings_page, &s_settings_body_label, screen, "SETTINGS", "");
 	build_subpage_container(&s_alarm_page, &s_alarm_body_label, screen, "ALARM", "");
