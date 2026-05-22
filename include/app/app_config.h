@@ -14,7 +14,7 @@
 #endif
 
 #ifndef APP_TODO_WEB_HOST
-#define APP_TODO_WEB_HOST "192.168.220.185"
+#define APP_TODO_WEB_HOST "172.26.32.25"
 #endif
 
 #ifndef APP_TODO_WEB_PORT

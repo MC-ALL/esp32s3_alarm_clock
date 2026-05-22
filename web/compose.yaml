@@ -1,0 +1,13 @@
+services:
+  clock-todo-web:
+    build:
+      context: .
+    image: esp32s3-alarm-clock-web:latest
+    container_name: esp32s3-alarm-clock-web
+    ports:
+      - "8080:8080"
+    environment:
+      CLOCK_WEB_DATA_DIR: /app/data
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>时钟待办</title>
+    <link rel="stylesheet" href="/static/style.css?v=20260520c" />
+  </head>
+  <body>
+    <div class="page-shell"></div>
+    <main class="app-shell">
+      <header class="app-header">
+        <div class="title-block">
+          <p class="eyebrow">LOCAL TODO SOURCE</p>
+          <h1>时钟待办</h1>
+          <p class="header-note">浏览器编辑，时钟拉取，局域网内同步。</p>
+        </div>
+        <div id="save-status" class="save-status idle">空闲</div>
+      </header>
+
+      <section class="create-panel">
+        <div class="panel-label-row">
+          <span class="panel-label">快速新增</span>
+          <span class="panel-tip">回车可直接提交</span>
+        </div>
+        <form id="create-form" class="create-form">
+          <input
+            id="todo-input"
+            name="text"
+            type="text"
+            maxlength="96"
+            autocomplete="off"
+            placeholder="输入一条待办事项"
+          />
+          <button type="submit">添加</button>
+        </form>
+        <p id="form-error" class="inline-error" hidden></p>
+      </section>
+
+      <section id="load-error" class="error-panel" hidden>
+        <p>待办数据加载失败。</p>
+        <p id="load-error-detail" class="error-detail" hidden></p>
+        <button id="retry-load" type="button">重试</button>
+      </section>
+
+      <section class="list-panel">
+        <div class="section-head">
+          <div>
+            <h2>待处理</h2>
+            <p class="section-note">主要列表按当前顺序直接提供给时钟端。</p>
+          </div>
+          <span id="pending-count" class="section-count">0</span>
+        </div>
+        <div id="pending-list" class="todo-list"></div>
+      </section>
+
+      <section class="list-panel completed-panel">
+        <button id="completed-toggle" class="completed-toggle" type="button" aria-expanded="false">
+          <span class="completed-toggle-copy">
+            <span>已完成</span>
+            <span class="section-note subtle">默认折叠</span>
+          </span>
+          <span class="completed-toggle-meta">
+            <span id="completed-count" class="section-count">0</span>
+            <span class="chevron" aria-hidden="true">⌄</span>
+          </span>
+        </button>
+        <div id="completed-wrapper" class="completed-wrapper collapsed">
+          <div id="completed-list" class="todo-list completed-list"></div>
+        </div>
+      </section>
+    </main>
+
+    <template id="todo-item-template">
+      <article class="todo-item">
+        <label class="toggle-wrap">
+          <input class="todo-check" type="checkbox" />
+          <span class="toggle-mark"></span>
+        </label>
+        <input class="todo-text" type="text" maxlength="96" />
+        <div class="todo-actions">
+          <button class="icon-button move-up" type="button" aria-label="move up">↑</button>
+          <button class="icon-button move-down" type="button" aria-label="move down">↓</button>
+          <button class="icon-button delete" type="button" aria-label="delete">✕</button>
+        </div>
+      </article>
+    </template>
+
+    <script src="/static/app.js?v=20260520c" defer></script>
+  </body>
+</html>
