@@ -1,9 +1,10 @@
 #include "app_module.h"
 #include <app/app_config.h>
 #include <app/audio_service.h>
-#include <app/net_service.h>
 #include <app/module_common.h>
+#include <app/net_service.h>
 
+#include <ctype.h>
 #include <esp_err.h>
 #include <esp_event.h>
 #include <esp_http_client.h>
@@ -11,9 +12,11 @@
 #include <esp_netif.h>
 #include <esp_timer.h>
 #include <esp_wifi.h>
-#include <lwip/inet.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/task.h>
 #include <lwip/apps/sntp.h>
-#include <ctype.h>
+#include <lwip/inet.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -35,6 +38,12 @@ static bool s_sntp_sync_timer_running;
 static esp_timer_handle_t s_todo_sync_timer;
 static bool s_todo_sync_timer_running;
 static bool s_todo_sync_in_progress;
+static QueueHandle_t s_todo_request_queue;
+static TaskHandle_t s_todo_task;
+
+typedef enum {
+	NET_TODO_REQUEST_SYNC = 1,
+} net_todo_request_t;
 
 typedef struct {
 	char *buffer;
@@ -288,7 +297,13 @@ static bool net_parse_todo_items(const char *json, app_todo_snapshot_t *snapshot
 
 static void net_service_sync_todos_once(void)
 {
-	if (!s_status.wifi_connected || !s_status.ip_ready || s_todo_sync_in_progress) {
+	if (!s_status.wifi_connected || !s_status.ip_ready) {
+		s_todo_snapshot.sync_ok = false;
+		s_todo_snapshot.sync_in_progress = false;
+		strlcpy(s_todo_snapshot.last_error, "wifi offline", sizeof(s_todo_snapshot.last_error));
+		return;
+	}
+	if (s_todo_sync_in_progress) {
 		return;
 	}
 
@@ -302,8 +317,7 @@ static void net_service_sync_todos_once(void)
 	app_todo_snapshot_t next_snapshot = s_todo_snapshot;
 	s_todo_sync_in_progress = true;
 	s_todo_snapshot.sync_in_progress = true;
-	(void)snprintf(url, sizeof(url), "http://%s:%d%s",
-		APP_TODO_WEB_HOST, APP_TODO_WEB_PORT, APP_TODO_WEB_PATH);
+	(void)snprintf(url, sizeof(url), "http://%s:%d%s", APP_TODO_WEB_HOST, APP_TODO_WEB_PORT, APP_TODO_WEB_PATH);
 
 	esp_http_client_config_t cfg = {
 		.url = url,
@@ -329,15 +343,15 @@ static void net_service_sync_todos_once(void)
 		struct tm timeinfo = { 0 };
 		time(&now);
 		localtime_r(&now, &timeinfo);
-		(void)snprintf(next_snapshot.last_sync_at, sizeof(next_snapshot.last_sync_at),
-			"%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+		(void)snprintf(next_snapshot.last_sync_at, sizeof(next_snapshot.last_sync_at), "%02d:%02d:%02d",
+			       timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
 		s_todo_snapshot = next_snapshot;
 		ESP_LOGI(TAG, "todo sync ok count=%u", (unsigned)s_todo_snapshot.count);
 	} else {
 		s_todo_snapshot.sync_ok = false;
 		s_todo_snapshot.sync_in_progress = false;
-		(void)snprintf(s_todo_snapshot.last_error, sizeof(s_todo_snapshot.last_error),
-			"http err=%d status=%d", (int)err, status);
+		(void)snprintf(s_todo_snapshot.last_error, sizeof(s_todo_snapshot.last_error), "http err=%d status=%d",
+			       (int)err, status);
 		ESP_LOGW(TAG, "todo sync failed err=%d status=%d", (int)err, status);
 	}
 
@@ -346,10 +360,54 @@ static void net_service_sync_todos_once(void)
 	s_todo_sync_in_progress = false;
 }
 
+static int net_service_queue_todo_sync(void)
+{
+	if (!s_status.wifi_connected || !s_status.ip_ready) {
+		s_todo_snapshot.sync_ok = false;
+		s_todo_snapshot.sync_in_progress = false;
+		strlcpy(s_todo_snapshot.last_error, "wifi offline", sizeof(s_todo_snapshot.last_error));
+		return -1;
+	}
+	if (s_todo_request_queue == NULL) {
+		s_todo_snapshot.sync_ok = false;
+		s_todo_snapshot.sync_in_progress = false;
+		strlcpy(s_todo_snapshot.last_error, "sync queue missing", sizeof(s_todo_snapshot.last_error));
+		return -1;
+	}
+	if (s_todo_sync_in_progress || s_todo_snapshot.sync_in_progress) {
+		return 0;
+	}
+
+	const net_todo_request_t request = NET_TODO_REQUEST_SYNC;
+	s_todo_snapshot.sync_in_progress = true;
+	if (xQueueSend(s_todo_request_queue, &request, 0) != pdTRUE) {
+		s_todo_snapshot.sync_in_progress = false;
+		strlcpy(s_todo_snapshot.last_error, "sync queue full", sizeof(s_todo_snapshot.last_error));
+		return -1;
+	}
+
+	return 0;
+}
+
+static void net_service_todo_task(void *arg)
+{
+	(void)arg;
+
+	for (;;) {
+		net_todo_request_t request = 0;
+		if (xQueueReceive(s_todo_request_queue, &request, portMAX_DELAY) != pdTRUE) {
+			continue;
+		}
+		if (request == NET_TODO_REQUEST_SYNC) {
+			net_service_sync_todos_once();
+		}
+	}
+}
+
 static void net_service_todo_sync_cb(void *arg)
 {
 	(void)arg;
-	net_service_sync_todos_once();
+	(void)net_service_queue_todo_sync();
 }
 
 static void net_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
@@ -379,7 +437,7 @@ static void net_event_handler(void *arg, esp_event_base_t event_base, int32_t ev
 		s_todo_snapshot.sync_in_progress = false;
 		if (strlen(APP_WIFI_STA_SSID) > 0U) {
 			ESP_LOGW(TAG, "wifi disconnected, reason=%d retry every 10s",
-				event != NULL ? (int)event->reason : -1);
+				 event != NULL ? (int)event->reason : -1);
 			net_service_start_reconnect_timer();
 		}
 		return;
@@ -401,7 +459,6 @@ static void net_event_handler(void *arg, esp_event_base_t event_base, int32_t ev
 		ESP_LOGI(TAG, "got ip, sntp started and periodic sync enabled");
 		return;
 	}
-
 }
 
 int net_service_init(void)
@@ -436,16 +493,16 @@ int net_service_init(void)
 	}
 	s_wifi_initialized = true;
 
-	err = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
-		&net_event_handler, NULL, &s_wifi_event_instance);
+	err = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &net_event_handler, NULL,
+						  &s_wifi_event_instance);
 	if (err != ESP_OK) {
 		ESP_LOGE(TAG, "register WIFI_EVENT failed: %s", esp_err_to_name(err));
 		goto fail;
 	}
 	s_wifi_event_registered = true;
 
-	err = esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
-		&net_event_handler, NULL, &s_ip_event_instance);
+	err = esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &net_event_handler, NULL,
+						  &s_ip_event_instance);
 	if (err != ESP_OK) {
 		ESP_LOGE(TAG, "register IP_EVENT failed: %s", esp_err_to_name(err));
 		goto fail;
@@ -488,11 +545,25 @@ int net_service_init(void)
 		goto fail;
 	}
 
+	s_todo_request_queue = xQueueCreate(1, sizeof(net_todo_request_t));
+	if (s_todo_request_queue == NULL) {
+		ESP_LOGE(TAG, "failed to create todo request queue");
+		err = ESP_ERR_NO_MEM;
+		goto fail;
+	}
+
+	BaseType_t task_ok = xTaskCreate(net_service_todo_task, "todo_sync_task", 4096, NULL, 6, &s_todo_task);
+	if (task_ok != pdPASS) {
+		ESP_LOGE(TAG, "failed to create todo sync task");
+		err = ESP_ERR_NO_MEM;
+		goto fail;
+	}
+
 	wifi_config_t wifi_config = { 0 };
 	if (strlen(APP_WIFI_STA_SSID) > 0U) {
 		strlcpy((char *)wifi_config.sta.ssid, APP_WIFI_STA_SSID, sizeof(wifi_config.sta.ssid));
 		strlcpy((char *)wifi_config.sta.password, APP_WIFI_STA_PASSWORD, sizeof(wifi_config.sta.password));
-			wifi_config.sta.threshold.authmode = WIFI_AUTH_OPEN;
+		wifi_config.sta.threshold.authmode = WIFI_AUTH_OPEN;
 		wifi_config.sta.pmf_cfg.capable = true;
 		wifi_config.sta.pmf_cfg.required = false;
 		err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
@@ -530,6 +601,17 @@ int net_service_stop(void)
 	net_service_stop_reconnect_timer();
 	net_service_stop_sntp_sync_timer();
 	net_service_stop_todo_sync_timer();
+	s_todo_sync_in_progress = false;
+	s_todo_snapshot.sync_in_progress = false;
+
+	if (s_todo_task != NULL) {
+		vTaskDelete(s_todo_task);
+		s_todo_task = NULL;
+	}
+	if (s_todo_request_queue != NULL) {
+		vQueueDelete(s_todo_request_queue);
+		s_todo_request_queue = NULL;
+	}
 
 	if (s_ip_event_registered) {
 		(void)esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, s_ip_event_instance);
@@ -609,10 +691,5 @@ bool net_service_get_todo_snapshot(app_todo_snapshot_t *out_snapshot)
 
 int net_service_request_todo_sync_now(void)
 {
-	if (!s_status.wifi_connected || !s_status.ip_ready) {
-		return -1;
-	}
-
-	net_service_sync_todos_once();
-	return 0;
+	return net_service_queue_todo_sync();
 }

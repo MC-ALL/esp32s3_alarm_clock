@@ -21,6 +21,7 @@ static TaskHandle_t s_env_task;
 static app_environment_snapshot_t s_snapshot;
 static SemaphoreHandle_t s_snapshot_mutex;
 static uint32_t s_dht11_fail_streak;
+static volatile uint32_t s_sample_interval_s = 2;
 
 typedef struct {
 	const char *name;
@@ -64,11 +65,8 @@ static int dht11_provider_read(float *temperature_c, float *humidity_percent)
 	}
 
 	s_dht11_cache.last_attempt_us = now_us;
-	const esp_err_t err = dht_read_float_data(
-		DHT_TYPE_DHT11,
-		(gpio_num_t)APP_PIN_DHT11_DATA,
-		humidity_percent,
-		temperature_c);
+	const esp_err_t err =
+	    dht_read_float_data(DHT_TYPE_DHT11, (gpio_num_t)APP_PIN_DHT11_DATA, humidity_percent, temperature_c);
 	if (err == ESP_OK) {
 		s_dht11_cache.valid = true;
 		s_dht11_cache.temperature_c = *temperature_c;
@@ -109,35 +107,24 @@ static void environment_log_snapshot(const app_environment_snapshot_t *snapshot)
 	}
 
 	if (snapshot->bh1750_valid && snapshot->dht11_valid) {
-		ESP_LOGI(TAG,
-			"sample lux=%.2f temp=%.1f humi=%.1f valid=1/1 ts_us=%" PRIi64,
-			snapshot->lux,
-			snapshot->temperature_c,
-			snapshot->humidity_percent,
-			snapshot->updated_at_us);
+		ESP_LOGI(TAG, "sample lux=%.2f temp=%.1f humi=%.1f valid=1/1 ts_us=%" PRIi64, snapshot->lux,
+			 snapshot->temperature_c, snapshot->humidity_percent, snapshot->updated_at_us);
 		return;
 	}
 
 	if (snapshot->bh1750_valid) {
-		ESP_LOGI(TAG,
-			"sample lux=%.2f temp=-- humi=-- valid=1/0 ts_us=%" PRIi64,
-			snapshot->lux,
-			snapshot->updated_at_us);
+		ESP_LOGI(TAG, "sample lux=%.2f temp=-- humi=-- valid=1/0 ts_us=%" PRIi64, snapshot->lux,
+			 snapshot->updated_at_us);
 		return;
 	}
 
 	if (snapshot->dht11_valid) {
-		ESP_LOGI(TAG,
-			"sample lux=-- temp=%.1f humi=%.1f valid=0/1 ts_us=%" PRIi64,
-			snapshot->temperature_c,
-			snapshot->humidity_percent,
-			snapshot->updated_at_us);
+		ESP_LOGI(TAG, "sample lux=-- temp=%.1f humi=%.1f valid=0/1 ts_us=%" PRIi64, snapshot->temperature_c,
+			 snapshot->humidity_percent, snapshot->updated_at_us);
 		return;
 	}
 
-	ESP_LOGI(TAG,
-		"sample lux=-- temp=-- humi=-- valid=0/0 ts_us=%" PRIi64,
-		snapshot->updated_at_us);
+	ESP_LOGI(TAG, "sample lux=-- temp=-- humi=-- valid=0/0 ts_us=%" PRIi64, snapshot->updated_at_us);
 }
 
 static int bh1750_measure_lux(float *lux_out)
@@ -166,7 +153,7 @@ static void environment_task(void *arg)
 {
 	(void)arg;
 
-	ESP_LOGI(TAG, "environment task started sample_ms=2000");
+	ESP_LOGI(TAG, "environment task started sample_s=%" PRIu32, s_sample_interval_s);
 
 	for (;;) {
 		float lux = 0.0f;
@@ -202,10 +189,8 @@ static void environment_task(void *arg)
 			s_snapshot.dht11_valid = false;
 			s_dht11_fail_streak++;
 			if (s_dht11_fail_streak == 1U || (s_dht11_fail_streak % 10U) == 0U) {
-				ESP_LOGW(TAG,
-					"dht11 read failed: %d, gpio=%d level=%d streak=%" PRIu32,
-					temp_humi_ret, APP_PIN_DHT11_DATA,
-					gpio_get_level(APP_PIN_DHT11_DATA), s_dht11_fail_streak);
+				ESP_LOGW(TAG, "dht11 read failed: %d, gpio=%d level=%d streak=%" PRIu32, temp_humi_ret,
+					 APP_PIN_DHT11_DATA, gpio_get_level(APP_PIN_DHT11_DATA), s_dht11_fail_streak);
 			}
 		}
 
@@ -213,7 +198,7 @@ static void environment_task(void *arg)
 		xSemaphoreGive(s_snapshot_mutex);
 
 		environment_log_snapshot(&s_snapshot);
-		vTaskDelay(pdMS_TO_TICKS(2000));
+		vTaskDelay(pdMS_TO_TICKS(s_sample_interval_s * 1000U));
 	}
 }
 
@@ -261,6 +246,7 @@ int environment_service_init(void)
 
 	s_snapshot = (app_environment_snapshot_t){ 0 };
 	s_dht11_fail_streak = 0;
+	s_sample_interval_s = 2;
 	s_snapshot_mutex = xSemaphoreCreateMutex();
 	if (s_snapshot_mutex == NULL) {
 		ESP_LOGE(TAG, "failed to create snapshot mutex");
@@ -272,9 +258,11 @@ int environment_service_init(void)
 		return -1;
 	}
 
-	ESP_LOGI(TAG, "init bh1750 sda=%d scl=%d addr=0x%02X temp_humi=%s gpio=%d dht_driver=dht.h sample_ms=2000",
-		APP_PIN_BH1750_SDA, APP_PIN_BH1750_SCL, APP_BH1750_I2C_ADDR,
-		s_temp_humidity_provider->name, APP_PIN_DHT11_DATA);
+	ESP_LOGI(TAG,
+		 "init bh1750 sda=%d scl=%d addr=0x%02X temp_humi=%s gpio=%d "
+		 "dht_driver=dht.h sample_s=%" PRIu32,
+		 APP_PIN_BH1750_SDA, APP_PIN_BH1750_SCL, APP_BH1750_I2C_ADDR, s_temp_humidity_provider->name,
+		 APP_PIN_DHT11_DATA, s_sample_interval_s);
 	return 0;
 }
 
@@ -335,4 +323,26 @@ bool environment_service_get_snapshot(app_environment_snapshot_t *out_snapshot)
 	}
 
 	return s_snapshot.bh1750_valid || s_snapshot.dht11_valid;
+}
+
+uint32_t environment_service_get_sample_interval_s(void)
+{
+	return s_sample_interval_s;
+}
+
+int environment_service_set_sample_interval_s(uint32_t seconds)
+{
+	if (seconds < 2U) {
+		seconds = 2U;
+	} else if (seconds > 30U) {
+		seconds = 30U;
+	}
+
+	if (s_sample_interval_s == seconds) {
+		return 0;
+	}
+
+	s_sample_interval_s = seconds;
+	ESP_LOGI(TAG, "sample interval changed sample_s=%" PRIu32, s_sample_interval_s);
+	return 0;
 }
