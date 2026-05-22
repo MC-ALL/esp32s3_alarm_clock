@@ -61,6 +61,7 @@ typedef struct {
 } display_alarm_item_t;
 
 #define APP_DISPLAY_MAX_ALARMS 4U
+#define APP_SUBPAGE_MAX_LINES 12U
 
 static esp_lcd_panel_io_handle_t s_panel_io;
 static esp_lcd_panel_handle_t s_panel;
@@ -98,6 +99,10 @@ static lv_obj_t *s_settings_body_label;
 static lv_obj_t *s_alarm_body_label;
 static lv_obj_t *s_network_body_label;
 static lv_obj_t *s_power_body_label;
+static lv_obj_t *s_settings_lines[APP_SUBPAGE_MAX_LINES];
+static lv_obj_t *s_alarm_lines[APP_SUBPAGE_MAX_LINES];
+static lv_obj_t *s_network_lines[APP_SUBPAGE_MAX_LINES];
+static lv_obj_t *s_power_lines[APP_SUBPAGE_MAX_LINES];
 static lv_obj_t *s_date_label;
 static lv_obj_t *s_time_label;
 static lv_obj_t *s_time_state_label;
@@ -145,9 +150,6 @@ static uint8_t s_alarm_selected_index;
 static display_alarm_item_t s_alarm_edit_item;
 static display_alarm_item_t s_alarm_items[APP_DISPLAY_MAX_ALARMS];
 static uint8_t s_alarm_count;
-static char s_settings_body_text[192];
-static char s_alarm_body_text[320];
-static char s_network_body_text[320];
 static char s_power_body_text[96];
 static char s_last_time_text[16];
 static char s_last_date_text[32];
@@ -245,6 +247,27 @@ static lv_disp_drv_t s_lvgl_drv;
 #ifndef LV_SYMBOL_REFRESH
 #define LV_SYMBOL_REFRESH "Sync"
 #endif
+#ifndef LV_SYMBOL_VOLUME_MAX
+#define LV_SYMBOL_VOLUME_MAX "Vol"
+#endif
+#ifndef LV_SYMBOL_MUTE
+#define LV_SYMBOL_MUTE "Mute"
+#endif
+#ifndef LV_SYMBOL_WARNING
+#define LV_SYMBOL_WARNING "Warn"
+#endif
+#ifndef LV_SYMBOL_LOOP
+#define LV_SYMBOL_LOOP "Rep"
+#endif
+#ifndef LV_SYMBOL_PLAY
+#define LV_SYMBOL_PLAY "Run"
+#endif
+#ifndef LV_SYMBOL_CLOSE
+#define LV_SYMBOL_CLOSE "No"
+#endif
+#ifndef LV_SYMBOL_BULLET
+#define LV_SYMBOL_BULLET "-"
+#endif
 
 static uint16_t s_frame_buffer[APP_LCD_WIDTH * 20];
 static lv_color_t s_lvgl_buf1[APP_LCD_WIDTH * 20];
@@ -290,6 +313,8 @@ static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t 
 
 static void display_apply_page_state(void);
 static int display_play_audio_event(app_audio_event_t event_id);
+static void display_update_power_page(const char *line0, lv_color_t color0, const char *line1, lv_color_t color1,
+				      const char *line2, lv_color_t color2);
 
 static void disable_scroll(lv_obj_t *obj)
 {
@@ -338,6 +363,41 @@ static void style_key_text(lv_obj_t *obj)
 	lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_CENTER, 0);
 }
 
+static lv_color_t color_text_main(void)
+{
+	return lv_color_hex(0xFFFFFF);
+}
+
+static lv_color_t color_text_muted(void)
+{
+	return lv_color_hex(0xBDBDBD);
+}
+
+static lv_color_t color_status_ok(void)
+{
+	return lv_color_hex(0x73E087);
+}
+
+static lv_color_t color_status_wait(void)
+{
+	return lv_color_hex(0xFFD54F);
+}
+
+static lv_color_t color_status_info(void)
+{
+	return lv_color_hex(0x86D3FF);
+}
+
+static lv_color_t color_status_error(void)
+{
+	return lv_color_hex(0xFF6B6B);
+}
+
+static lv_color_t color_selected(void)
+{
+	return lv_color_hex(0xFFFFFF);
+}
+
 static void style_text_row_panel(lv_obj_t *obj)
 {
 	disable_scroll(obj);
@@ -373,6 +433,28 @@ static void set_obj_hidden(lv_obj_t *obj, bool hidden)
 		lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
 	} else {
 		lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
+	}
+}
+
+static void display_set_line(lv_obj_t *lines[], size_t index, const char *text, lv_color_t color)
+{
+	if (lines == NULL || index >= APP_SUBPAGE_MAX_LINES || lines[index] == NULL || text == NULL) {
+		return;
+	}
+
+	lv_label_set_text(lines[index], text);
+	lv_obj_set_style_text_color(lines[index], color, 0);
+	set_obj_hidden(lines[index], text[0] == '\0');
+}
+
+static void display_clear_lines(lv_obj_t *lines[])
+{
+	if (lines == NULL) {
+		return;
+	}
+
+	for (size_t i = 0; i < APP_SUBPAGE_MAX_LINES; i++) {
+		display_set_line(lines, i, "", color_text_muted());
 	}
 }
 
@@ -583,8 +665,8 @@ static const char *weekday_abbr(int wday)
 	return WEEKDAYS[wday];
 }
 
-static void build_subpage_container(lv_obj_t **page, lv_obj_t **body_out, lv_obj_t *screen, const char *title,
-				    const char *body)
+static void build_subpage_container(lv_obj_t **page, lv_obj_t **body_out, lv_obj_t *lines[], lv_obj_t *screen,
+				    const char *title, const char *body)
 {
 	lv_obj_t *title_label;
 	lv_obj_t *body_label;
@@ -612,6 +694,19 @@ static void build_subpage_container(lv_obj_t **page, lv_obj_t **body_out, lv_obj
 	lv_label_set_long_mode(body_label, LV_LABEL_LONG_WRAP);
 	lv_obj_align(body_label, LV_ALIGN_TOP_LEFT, 4, 28);
 	lv_label_set_text(body_label, body);
+	lv_obj_add_flag(body_label, LV_OBJ_FLAG_HIDDEN);
+
+	if (lines != NULL) {
+		for (size_t i = 0; i < APP_SUBPAGE_MAX_LINES; i++) {
+			lines[i] = lv_label_create(*page);
+			disable_scroll(lines[i]);
+			style_body_text(lines[i]);
+			style_single_line_label(lines[i], 232);
+			lv_obj_align(lines[i], LV_ALIGN_TOP_LEFT, 4, 28 + (int32_t)(i * 20U));
+			lv_label_set_text(lines[i], "");
+			lv_obj_add_flag(lines[i], LV_OBJ_FLAG_HIDDEN);
+		}
+	}
 
 	if (body_out != NULL) {
 		*body_out = body_label;
@@ -649,9 +744,10 @@ static void display_update_alarm_runtime(struct tm *timeinfo, bool time_valid)
 			s_alarm_ring_last_second = (uint8_t)timeinfo->tm_sec;
 			s_current_page = DISPLAY_PAGE_POWER;
 			snprintf(s_power_body_text, sizeof(s_power_body_text),
-				 "%02u:%02u:%02u\n\nPRESS ANY KEY TO STOP", s_alarm_active_item.hour,
+				 LV_SYMBOL_BELL " %02u:%02u:%02u", s_alarm_active_item.hour,
 				 s_alarm_active_item.minute, s_alarm_active_item.second);
-			lv_label_set_text(s_power_body_label, s_power_body_text);
+			display_update_power_page(s_power_body_text, color_status_error(), "PRESS ANY KEY", color_text_main(),
+						  LV_SYMBOL_STOP " STOP", color_status_error());
 			display_apply_page_state();
 			break;
 		}
@@ -682,6 +778,7 @@ static void display_update_alarm_runtime(struct tm *timeinfo, bool time_valid)
 
 static void display_update_settings_page(void)
 {
+	char line[48];
 	const uint8_t preview_volume =
 	    (s_settings_editing && s_settings_focus == 2U) ? s_settings_edit_value : s_setting_volume;
 	const uint8_t preview_env_sample =
@@ -689,40 +786,55 @@ static void display_update_settings_page(void)
 	const uint8_t preview_repeat =
 	    (s_settings_editing && s_settings_focus == 4U) ? s_settings_edit_value : s_setting_repeat_count;
 
-	snprintf(s_settings_body_text, sizeof(s_settings_body_text),
-		 "%s ALERTS:   %s\n%s ALARM:    %s\n%s VOLUME:   %u%s\n%s ENV RATE: "
-		 "%us%s\n%s REPEAT:   %u%s\n\nMODE: %s",
-		 s_settings_focus == 0U ? ">" : " ", s_setting_sound_on ? "ON" : "OFF",
-		 s_settings_focus == 1U ? ">" : " ", s_setting_audio_on ? "ON" : "OFF",
-		 s_settings_focus == 2U ? ">" : " ", (unsigned)preview_volume,
-		 (s_settings_editing && s_settings_focus == 2U) ? " <" : "", s_settings_focus == 3U ? ">" : " ",
-		 (unsigned)preview_env_sample, (s_settings_editing && s_settings_focus == 3U) ? " <" : "",
-		 s_settings_focus == 4U ? ">" : " ", (unsigned)preview_repeat,
-		 (s_settings_editing && s_settings_focus == 4U) ? " <" : "", s_settings_editing ? "EDIT" : "BROWSE");
-	lv_label_set_text(s_settings_body_label, s_settings_body_text);
+	display_clear_lines(s_settings_lines);
+
+	snprintf(line, sizeof(line), "%s %s ALERTS %s", s_settings_focus == 0U ? ">" : " ", LV_SYMBOL_VOLUME_MAX,
+		 s_setting_sound_on ? "ON" : "OFF");
+	display_set_line(s_settings_lines, 0, line, s_settings_focus == 0U ? color_selected() :
+						       (s_setting_sound_on ? color_status_ok() : color_text_muted()));
+	snprintf(line, sizeof(line), "%s %s ALARM  %s", s_settings_focus == 1U ? ">" : " ", LV_SYMBOL_BELL,
+		 s_setting_audio_on ? "ON" : "OFF");
+	display_set_line(s_settings_lines, 1, line, s_settings_focus == 1U ? color_selected() :
+						       (s_setting_audio_on ? color_status_ok() : color_text_muted()));
+	snprintf(line, sizeof(line), "%s %s VOLUME %u%s", s_settings_focus == 2U ? ">" : " ", LV_SYMBOL_VOLUME_MAX,
+		 (unsigned)preview_volume, (s_settings_editing && s_settings_focus == 2U) ? " <" : "");
+	display_set_line(s_settings_lines, 2, line, s_settings_focus == 2U ? color_selected() : color_text_main());
+	snprintf(line, sizeof(line), "%s %s ENV    %us%s", s_settings_focus == 3U ? ">" : " ", LV_SYMBOL_REFRESH,
+		 (unsigned)preview_env_sample, (s_settings_editing && s_settings_focus == 3U) ? " <" : "");
+	display_set_line(s_settings_lines, 3, line, s_settings_focus == 3U ? color_selected() : color_status_info());
+	snprintf(line, sizeof(line), "%s %s REPEAT %u%s", s_settings_focus == 4U ? ">" : " ", LV_SYMBOL_LOOP,
+		 (unsigned)preview_repeat, (s_settings_editing && s_settings_focus == 4U) ? " <" : "");
+	display_set_line(s_settings_lines, 4, line, s_settings_focus == 4U ? color_selected() : color_text_main());
+	snprintf(line, sizeof(line), "MODE: %s", s_settings_editing ? "EDIT" : "BROWSE");
+	display_set_line(s_settings_lines, 6, line, s_settings_editing ? color_status_wait() : color_text_muted());
 }
 
 static void display_update_alarm_page(void)
 {
-	char list_buf[192];
+	char line[64];
 	char detail_buf[96];
 	const char *action_label = "";
 
+	display_clear_lines(s_alarm_lines);
+
 	if (s_alarm_view == ALARM_VIEW_LIST) {
-		size_t offset = 0;
 		const bool alarm_full = s_alarm_count >= APP_DISPLAY_MAX_ALARMS;
-		offset += (size_t)snprintf(list_buf + offset, sizeof(list_buf) - offset, "%s %s\n\n",
-					   s_alarm_focus == 0U ? ">" : " ", alarm_full ? "ALARM FULL" : "+ NEW ALARM");
-		offset += (size_t)snprintf(list_buf + offset, sizeof(list_buf) - offset, "  EXISTING ALARMS\n");
-		for (uint8_t i = 0; i < s_alarm_count && offset < sizeof(list_buf); i++) {
-			offset += (size_t)snprintf(
-			    list_buf + offset, sizeof(list_buf) - offset, "%s %02u:%02u:%02u %s %s\n",
-			    s_alarm_focus == (uint8_t)(i + 1U) ? ">" : " ", s_alarm_items[i].hour,
-			    s_alarm_items[i].minute, s_alarm_items[i].second, s_alarm_items[i].repeat ? "REP" : "ONCE",
-			    s_alarm_items[i].enabled ? "ON" : "OFF");
+		snprintf(line, sizeof(line), "%s %s %s", s_alarm_focus == 0U ? ">" : " ",
+			 alarm_full ? LV_SYMBOL_WARNING : LV_SYMBOL_PLUS, alarm_full ? "ALARM FULL" : "NEW ALARM");
+		display_set_line(s_alarm_lines, 0, line,
+				 s_alarm_focus == 0U ? color_selected() : (alarm_full ? color_status_wait() : color_status_ok()));
+		display_set_line(s_alarm_lines, 2, "EXISTING", color_text_muted());
+		for (uint8_t i = 0; i < s_alarm_count; i++) {
+			snprintf(line, sizeof(line), "%s %02u:%02u:%02u %s %s",
+				 s_alarm_focus == (uint8_t)(i + 1U) ? ">" : " ", s_alarm_items[i].hour,
+				 s_alarm_items[i].minute, s_alarm_items[i].second, s_alarm_items[i].repeat ? "REP" : "ONCE",
+				 s_alarm_items[i].enabled ? "ON" : "OFF");
+			display_set_line(s_alarm_lines, 3U + i, line,
+					 s_alarm_focus == (uint8_t)(i + 1U) ?
+					     color_selected() :
+					     (s_alarm_items[i].enabled ? color_status_ok() : color_text_muted()));
 		}
-		snprintf(s_alarm_body_text, sizeof(s_alarm_body_text), "%s\nSTATE: LIST", list_buf);
-		lv_label_set_text(s_alarm_body_label, s_alarm_body_text);
+		display_set_line(s_alarm_lines, 8, "STATE: LIST", color_text_muted());
 		return;
 	}
 
@@ -737,21 +849,35 @@ static void display_update_alarm_page(void)
 	}
 
 	if (s_alarm_view == ALARM_VIEW_ACTION) {
-		static const char *ACTIONS[] = { "EDIT", "TOGGLE", "DELETE", "BACK" };
-		snprintf(s_alarm_body_text, sizeof(s_alarm_body_text),
-			 "ITEM: %s\n\n%s %s\n%s %s\n%s %s\n%s %s\n\nSTATE: ACTION", detail_buf,
-			 s_alarm_action_focus == ALARM_ACTION_EDIT ? ">" : " ", ACTIONS[0],
-			 s_alarm_action_focus == ALARM_ACTION_TOGGLE ? ">" : " ", ACTIONS[1],
-			 s_alarm_action_focus == ALARM_ACTION_DELETE ? ">" : " ", ACTIONS[2],
-			 s_alarm_action_focus == ALARM_ACTION_BACK ? ">" : " ", ACTIONS[3]);
-		lv_label_set_text(s_alarm_body_label, s_alarm_body_text);
+		snprintf(line, sizeof(line), "ITEM: %s", detail_buf);
+		display_set_line(s_alarm_lines, 0, line, color_text_main());
+		snprintf(line, sizeof(line), "%s %s EDIT", s_alarm_action_focus == ALARM_ACTION_EDIT ? ">" : " ",
+			 LV_SYMBOL_EDIT);
+		display_set_line(s_alarm_lines, 2, line,
+				 s_alarm_action_focus == ALARM_ACTION_EDIT ? color_selected() : color_status_info());
+		snprintf(line, sizeof(line), "%s %s TOGGLE", s_alarm_action_focus == ALARM_ACTION_TOGGLE ? ">" : " ",
+			 LV_SYMBOL_POWER);
+		display_set_line(s_alarm_lines, 3, line,
+				 s_alarm_action_focus == ALARM_ACTION_TOGGLE ? color_selected() : color_status_wait());
+		snprintf(line, sizeof(line), "%s %s DELETE", s_alarm_action_focus == ALARM_ACTION_DELETE ? ">" : " ",
+			 LV_SYMBOL_TRASH);
+		display_set_line(s_alarm_lines, 4, line,
+				 s_alarm_action_focus == ALARM_ACTION_DELETE ? color_selected() : color_status_error());
+		snprintf(line, sizeof(line), "%s %s BACK", s_alarm_action_focus == ALARM_ACTION_BACK ? ">" : " ",
+			 LV_SYMBOL_LEFT);
+		display_set_line(s_alarm_lines, 5, line,
+				 s_alarm_action_focus == ALARM_ACTION_BACK ? color_selected() : color_text_muted());
+		display_set_line(s_alarm_lines, 7, "STATE: ACTION", color_text_muted());
 		return;
 	}
 
 	if (s_alarm_view == ALARM_VIEW_DELETE_CONFIRM) {
-		snprintf(s_alarm_body_text, sizeof(s_alarm_body_text),
-			 "DEL %s?\n\nK1 CANCEL\nK4 CONFIRM\n\nSTATE: DELETE", detail_buf);
-		lv_label_set_text(s_alarm_body_label, s_alarm_body_text);
+		snprintf(line, sizeof(line), "%s DELETE?", LV_SYMBOL_WARNING);
+		display_set_line(s_alarm_lines, 0, line, color_status_error());
+		display_set_line(s_alarm_lines, 1, detail_buf, color_text_main());
+		display_set_line(s_alarm_lines, 3, "K1 CANCEL", color_text_muted());
+		display_set_line(s_alarm_lines, 4, "K4 CONFIRM", color_status_error());
+		display_set_line(s_alarm_lines, 6, "STATE: DELETE", color_text_muted());
 		return;
 	}
 
@@ -773,14 +899,29 @@ static void display_update_alarm_page(void)
 		break;
 	}
 
-	snprintf(s_alarm_body_text, sizeof(s_alarm_body_text),
-		 "EDIT: %s\n\nHOUR:    %02u%s\nMINUTE:  %02u%s\nSECOND:  "
-		 "%02u%s\nREPEAT:  %s%s\nENABLED: %s%s\n\nSTATE: EDIT",
-		 action_label, s_alarm_edit_item.hour, s_alarm_edit_field == 0U ? " <" : "", s_alarm_edit_item.minute,
-		 s_alarm_edit_field == 1U ? " <" : "", s_alarm_edit_item.second, s_alarm_edit_field == 2U ? " <" : "",
-		 s_alarm_edit_item.repeat ? "YES" : "NO", s_alarm_edit_field == 3U ? " <" : "",
-		 s_alarm_edit_item.enabled ? "ON" : "OFF", s_alarm_edit_field == 4U ? " <" : "");
-	lv_label_set_text(s_alarm_body_label, s_alarm_body_text);
+	snprintf(line, sizeof(line), "EDIT: %s", action_label);
+	display_set_line(s_alarm_lines, 0, line, color_status_info());
+	snprintf(line, sizeof(line), "%s HOUR    %02u%s", s_alarm_edit_field == 0U ? ">" : " ",
+		 s_alarm_edit_item.hour, s_alarm_edit_field == 0U ? " <" : "");
+	display_set_line(s_alarm_lines, 2, line, s_alarm_edit_field == 0U ? color_selected() : color_text_main());
+	snprintf(line, sizeof(line), "%s MINUTE  %02u%s", s_alarm_edit_field == 1U ? ">" : " ",
+		 s_alarm_edit_item.minute, s_alarm_edit_field == 1U ? " <" : "");
+	display_set_line(s_alarm_lines, 3, line, s_alarm_edit_field == 1U ? color_selected() : color_text_main());
+	snprintf(line, sizeof(line), "%s SECOND  %02u%s", s_alarm_edit_field == 2U ? ">" : " ",
+		 s_alarm_edit_item.second, s_alarm_edit_field == 2U ? " <" : "");
+	display_set_line(s_alarm_lines, 4, line, s_alarm_edit_field == 2U ? color_selected() : color_text_main());
+	snprintf(line, sizeof(line), "%s %s REPEAT  %s%s", s_alarm_edit_field == 3U ? ">" : " ", LV_SYMBOL_LOOP,
+		 s_alarm_edit_item.repeat ? "YES" : "NO", s_alarm_edit_field == 3U ? " <" : "");
+	display_set_line(s_alarm_lines, 5, line,
+			 s_alarm_edit_field == 3U ? color_selected() :
+						     (s_alarm_edit_item.repeat ? color_status_ok() : color_text_muted()));
+	snprintf(line, sizeof(line), "%s %s ENABLED %s%s", s_alarm_edit_field == 4U ? ">" : " ",
+		 s_alarm_edit_item.enabled ? LV_SYMBOL_OK : LV_SYMBOL_CLOSE, s_alarm_edit_item.enabled ? "ON" : "OFF",
+		 s_alarm_edit_field == 4U ? " <" : "");
+	display_set_line(s_alarm_lines, 6, line,
+			 s_alarm_edit_field == 4U ? color_selected() :
+						     (s_alarm_edit_item.enabled ? color_status_ok() : color_text_muted()));
+	display_set_line(s_alarm_lines, 8, "STATE: EDIT", color_text_muted());
 }
 
 static void display_update_network_page(void)
@@ -797,53 +938,96 @@ static void display_update_network_page(void)
 		"BACK",
 	};
 	char ssid_buf[16];
-	char detail_buf[160];
+	char line[64];
 	const char *state_text = "MODULE";
 	app_net_status_t net_status = { 0 };
 	app_todo_snapshot_t todo_snapshot = { 0 };
 
 	(void)net_service_get_status(&net_status);
 	(void)net_service_get_todo_snapshot(&todo_snapshot);
+	display_clear_lines(s_network_lines);
+
+	snprintf(line, sizeof(line), "MODULE: %s", ITEMS[s_network_focus]);
+	display_set_line(s_network_lines, 0, line, color_status_info());
 
 	if (s_network_focus == 0U) {
 		copy_display_text(ssid_buf, sizeof(ssid_buf),
 				  net_status.connected_ssid[0] != '\0' ? net_status.connected_ssid : "--", 10U);
-		snprintf(detail_buf, sizeof(detail_buf), "SSID: %s\nSTARTED:   %s\nCONNECTED: %s\nIP READY:  %s",
-			 ssid_buf, net_status.wifi_started ? "YES" : "NO", net_status.wifi_connected ? "YES" : "NO",
+		snprintf(line, sizeof(line), "SSID: %s", ssid_buf);
+		display_set_line(s_network_lines, 2, line, color_text_main());
+		snprintf(line, sizeof(line), "%s STARTED   %s", net_status.wifi_started ? LV_SYMBOL_OK : LV_SYMBOL_CLOSE,
+			 net_status.wifi_started ? "YES" : "NO");
+		display_set_line(s_network_lines, 3, line, net_status.wifi_started ? color_status_ok() : color_text_muted());
+		snprintf(line, sizeof(line), "%s CONNECTED %s", net_status.wifi_connected ? LV_SYMBOL_WIFI : LV_SYMBOL_CLOSE,
+			 net_status.wifi_connected ? "YES" : "NO");
+		display_set_line(s_network_lines, 4, line,
+				 net_status.wifi_connected ? color_status_ok() : color_status_error());
+		snprintf(line, sizeof(line), "%s IP READY  %s", net_status.ip_ready ? LV_SYMBOL_OK : LV_SYMBOL_CLOSE,
 			 net_status.ip_ready ? "YES" : "NO");
+		display_set_line(s_network_lines, 5, line, net_status.ip_ready ? color_status_ok() : color_status_wait());
 	} else if (s_network_focus == 1U) {
-		snprintf(detail_buf, sizeof(detail_buf), "%s %s\n%s %s\n%s %s",
-			 s_network_action_focus == 0U ? ">" : " ", ACTION_ITEMS[0],
-			 s_network_action_focus == 1U ? ">" : " ", ACTION_ITEMS[1],
-			 s_network_action_focus == 2U ? ">" : " ", ACTION_ITEMS[2]);
+		snprintf(line, sizeof(line), "%s %s %s", s_network_action_focus == 0U ? ">" : " ", LV_SYMBOL_WIFI,
+			 ACTION_ITEMS[0]);
+		display_set_line(s_network_lines, 2, line,
+				 s_network_action_focus == 0U ? color_selected() : color_status_info());
+		snprintf(line, sizeof(line), "%s %s %s", s_network_action_focus == 1U ? ">" : " ", LV_SYMBOL_REFRESH,
+			 ACTION_ITEMS[1]);
+		display_set_line(s_network_lines, 3, line,
+				 s_network_action_focus == 1U ? color_selected() : color_status_wait());
+		snprintf(line, sizeof(line), "%s %s %s", s_network_action_focus == 2U ? ">" : " ", LV_SYMBOL_LEFT,
+			 ACTION_ITEMS[2]);
+		display_set_line(s_network_lines, 4, line,
+				 s_network_action_focus == 2U ? color_selected() : color_text_muted());
 	} else if (s_network_focus == 2U) {
 		app_net_status_t scan_hint = { 0 };
 		(void)net_service_get_status(&scan_hint);
 		copy_display_text(ssid_buf, sizeof(ssid_buf), APP_WIFI_STA_SSID, 10U);
+		snprintf(line, sizeof(line), "SSID: %s", ssid_buf);
+		display_set_line(s_network_lines, 2, line, color_text_main());
 		if (scan_hint.wifi_connected &&
 		    strncmp(scan_hint.connected_ssid, APP_WIFI_STA_SSID, sizeof(scan_hint.connected_ssid)) == 0) {
-			snprintf(detail_buf, sizeof(detail_buf), "SSID: %s\nSTATE: CONNECTED\nIP:    %s", ssid_buf,
-				 scan_hint.ip_addr[0] != '\0' ? scan_hint.ip_addr : "--");
+			display_set_line(s_network_lines, 3, LV_SYMBOL_WIFI " CONNECTED", color_status_ok());
+			snprintf(line, sizeof(line), "IP: %s", scan_hint.ip_addr[0] != '\0' ? scan_hint.ip_addr : "--");
+			display_set_line(s_network_lines, 4, line, color_text_main());
 		} else {
-			snprintf(detail_buf, sizeof(detail_buf), "SSID: %s\nSTATE: NOT CONNECTED", ssid_buf);
+			display_set_line(s_network_lines, 3, LV_SYMBOL_WARNING " NOT CONNECTED", color_status_wait());
 		}
 	} else {
-		snprintf(detail_buf, sizeof(detail_buf),
-			 "TIME SYNC: %s\nWIFI:      %s\nIP:        %s\nTODO:      "
-			 "%s\nLAST:      %s",
-			 net_status.time_synced ? "OK" : "WAIT", net_status.wifi_connected ? "ONLINE" : "OFFLINE",
-			 net_status.ip_addr[0] != '\0' ? net_status.ip_addr : "--",
-			 todo_snapshot.sync_in_progress ? "SYNC" : (todo_snapshot.sync_ok ? "OK" : "WAIT"),
+		snprintf(line, sizeof(line), "%s TIME %s", net_status.time_synced ? LV_SYMBOL_OK : LV_SYMBOL_WARNING,
+			 net_status.time_synced ? "OK" : "WAIT");
+		display_set_line(s_network_lines, 2, line, net_status.time_synced ? color_status_ok() : color_status_wait());
+		snprintf(line, sizeof(line), "%s WIFI %s", net_status.wifi_connected ? LV_SYMBOL_WIFI : LV_SYMBOL_WARNING,
+			 net_status.wifi_connected ? "ONLINE" : "OFFLINE");
+		display_set_line(s_network_lines, 3, line,
+				 net_status.wifi_connected ? color_status_ok() : color_status_error());
+		snprintf(line, sizeof(line), "IP: %s", net_status.ip_addr[0] != '\0' ? net_status.ip_addr : "--");
+		display_set_line(s_network_lines, 4, line, color_text_main());
+		snprintf(line, sizeof(line), "%s TODO %s", todo_snapshot.sync_in_progress ? LV_SYMBOL_REFRESH :
+							    (todo_snapshot.sync_ok ? LV_SYMBOL_OK : LV_SYMBOL_WARNING),
+			 todo_snapshot.sync_in_progress ? "SYNC" : (todo_snapshot.sync_ok ? "OK" : "WAIT"));
+		display_set_line(s_network_lines, 5, line,
+				 todo_snapshot.sync_in_progress ? color_status_info() :
+								 (todo_snapshot.sync_ok ? color_status_ok() : color_status_wait()));
+		snprintf(line, sizeof(line), "LAST: %s",
 			 todo_snapshot.last_sync_at[0] != '\0' ? todo_snapshot.last_sync_at : "--");
+		display_set_line(s_network_lines, 6, line, color_text_muted());
 	}
 
 	if (s_network_selecting) {
 		state_text = "ACTION";
 	}
 
-	snprintf(s_network_body_text, sizeof(s_network_body_text), "MODULE: %s\n\n%s\n\nSTATE: %s",
-		 ITEMS[s_network_focus], detail_buf, state_text);
-	lv_label_set_text(s_network_body_label, s_network_body_text);
+	snprintf(line, sizeof(line), "STATE: %s", state_text);
+	display_set_line(s_network_lines, 8, line, s_network_selecting ? color_status_wait() : color_text_muted());
+}
+
+static void display_update_power_page(const char *line0, lv_color_t color0, const char *line1, lv_color_t color1,
+				      const char *line2, lv_color_t color2)
+{
+	display_clear_lines(s_power_lines);
+	display_set_line(s_power_lines, 0, line0, color0);
+	display_set_line(s_power_lines, 2, line1, color1);
+	display_set_line(s_power_lines, 4, line2, color2);
 }
 
 static void display_reset_subpage_state(display_page_t page)
@@ -869,9 +1053,8 @@ static void display_reset_subpage_state(display_page_t page)
 		lv_obj_set_style_border_width(s_power_page, 0, 0);
 		lv_obj_set_style_outline_width(s_power_page, 0, 0);
 		lv_obj_set_style_shadow_width(s_power_page, 0, 0);
-		snprintf(s_power_body_text, sizeof(s_power_body_text),
-			 "Power off is not wired.\n\nOK shows a test confirm.");
-		lv_label_set_text(s_power_body_label, s_power_body_text);
+		display_update_power_page(LV_SYMBOL_POWER " POWER", color_status_wait(), "Power off is not wired.",
+					  color_text_muted(), LV_SYMBOL_OK " test confirm", color_text_main());
 	}
 }
 
@@ -1314,9 +1497,8 @@ static void display_process_key_press(size_t key_index)
 		if (key_index == 0U) {
 			s_current_page = DISPLAY_PAGE_HOME;
 		} else if (key_index == 3U && s_power_body_label != NULL) {
-			snprintf(s_power_body_text, sizeof(s_power_body_text),
-				 "Test confirmed.\nPower off is still not wired.");
-			lv_label_set_text(s_power_body_label, s_power_body_text);
+			display_update_power_page(LV_SYMBOL_OK " TEST CONFIRMED", color_status_ok(),
+						  "Power off is still", color_text_muted(), "not wired.", color_text_muted());
 		}
 	}
 
@@ -1381,17 +1563,17 @@ static void display_build_boot_screen(void)
 
 	s_sound_label = lv_label_create(s_status_panel);
 	style_body_text(s_sound_label);
-	lv_obj_set_style_text_color(s_sound_label, lv_color_hex(0xFFFFFF), 0);
+	lv_obj_set_style_text_color(s_sound_label, color_status_ok(), 0);
 	style_single_line_label(s_sound_label, 72);
 	lv_obj_align(s_sound_label, LV_ALIGN_TOP_LEFT, 0, 4);
-	lv_label_set_text(s_sound_label, "ALT ON");
+	lv_label_set_text(s_sound_label, LV_SYMBOL_VOLUME_MAX " ON");
 
 	s_audio_label = lv_label_create(s_status_panel);
 	style_body_text(s_audio_label);
-	lv_obj_set_style_text_color(s_audio_label, lv_color_hex(0xFFFFFF), 0);
+	lv_obj_set_style_text_color(s_audio_label, color_status_ok(), 0);
 	style_single_line_label(s_audio_label, 72);
 	lv_obj_align(s_audio_label, LV_ALIGN_TOP_LEFT, 0, 30);
-	lv_label_set_text(s_audio_label, "ALM ON");
+	lv_label_set_text(s_audio_label, LV_SYMBOL_BELL " ON");
 
 	s_env_panel = lv_obj_create(screen);
 	style_text_row_panel(s_env_panel);
@@ -1522,10 +1704,10 @@ static void display_build_boot_screen(void)
 	lv_obj_align(s_key4_label, LV_ALIGN_LEFT_MID, 184, 0);
 	lv_label_set_text(s_key4_label, LV_SYMBOL_POWER);
 
-	build_subpage_container(&s_settings_page, &s_settings_body_label, screen, "SETTINGS", "");
-	build_subpage_container(&s_alarm_page, &s_alarm_body_label, screen, "ALARM", "");
-	build_subpage_container(&s_network_page, &s_network_body_label, screen, "NETWORK", "");
-	build_subpage_container(&s_power_page, &s_power_body_label, screen, "POWER OFF?", "");
+	build_subpage_container(&s_settings_page, &s_settings_body_label, s_settings_lines, screen, "SETTINGS", "");
+	build_subpage_container(&s_alarm_page, &s_alarm_body_label, s_alarm_lines, screen, "ALARM", "");
+	build_subpage_container(&s_network_page, &s_network_body_label, s_network_lines, screen, "NETWORK", "");
+	build_subpage_container(&s_power_page, &s_power_body_label, s_power_lines, screen, "POWER OFF?", "");
 	set_obj_hidden(s_settings_page, true);
 	set_obj_hidden(s_alarm_page, true);
 	set_obj_hidden(s_network_page, true);
@@ -1607,28 +1789,39 @@ static void display_update_labels(void)
 				  system_time_valid ? "" : "UNSYNC");
 	set_label_text_if_changed(s_presence_label, s_last_presence_text, sizeof(s_last_presence_text),
 				  detected ? "DETECTED" : "");
+	lv_obj_set_style_text_color(s_presence_label, detected ? color_status_ok() : color_text_muted(), 0);
+	lv_obj_set_style_text_color(s_time_state_label, system_time_valid ? color_text_muted() : color_status_wait(), 0);
+	lv_obj_set_style_text_color(s_sound_label, s_setting_sound_on ? color_status_ok() : color_text_muted(), 0);
 	set_label_text_if_changed(s_sound_label, s_last_sound_text, sizeof(s_last_sound_text),
-				  s_setting_sound_on ? "ALT ON" : "ALT OFF");
+				  s_setting_sound_on ? LV_SYMBOL_VOLUME_MAX " ON" : LV_SYMBOL_MUTE " OFF");
+	lv_obj_set_style_text_color(s_audio_label, s_setting_audio_on ? color_status_ok() : color_text_muted(), 0);
 	set_label_text_if_changed(s_audio_label, s_last_audio_text, sizeof(s_last_audio_text),
-				  s_setting_audio_on ? "ALM ON" : "ALM OFF");
+				  s_setting_audio_on ? LV_SYMBOL_BELL " ON" : LV_SYMBOL_BELL " OFF");
+	if (s_env_notice_text[0] == '\0') {
+		lv_obj_set_style_text_color(s_tips_text_label, color_text_muted(), 0);
+	} else if (strstr(s_env_notice_text, "HIGH") != NULL) {
+		lv_obj_set_style_text_color(s_tips_text_label, color_status_error(), 0);
+	} else {
+		lv_obj_set_style_text_color(s_tips_text_label, color_status_wait(), 0);
+	}
 	set_label_text_if_changed(s_tips_text_label, s_env_notice_text, sizeof(s_env_notice_text),
 				  s_env_notice_text[0] != '\0' ? s_env_notice_text : "NORMAL");
 	if (todo_snapshot.sync_in_progress) {
-		lv_obj_set_style_text_color(s_todo_title_label, lv_color_hex(0x86D3FF), 0);
+		lv_obj_set_style_text_color(s_todo_title_label, color_status_info(), 0);
 		set_label_text_if_changed(s_todo_title_label, s_last_todo_title_text, sizeof(s_last_todo_title_text),
-					  "TODO SYNC");
+					  LV_SYMBOL_REFRESH " TODO");
 	} else if (todo_snapshot.sync_ok) {
-		style_text_muted(s_todo_title_label);
+		lv_obj_set_style_text_color(s_todo_title_label, color_status_ok(), 0);
 		set_label_text_if_changed(s_todo_title_label, s_last_todo_title_text, sizeof(s_last_todo_title_text),
-					  "TODO OK");
+					  LV_SYMBOL_OK " TODO");
 	} else if (todo_snapshot.last_error[0] != '\0') {
-		lv_obj_set_style_text_color(s_todo_title_label, lv_color_hex(0xFF6B6B), 0);
+		lv_obj_set_style_text_color(s_todo_title_label, color_status_error(), 0);
 		set_label_text_if_changed(s_todo_title_label, s_last_todo_title_text, sizeof(s_last_todo_title_text),
-					  "TODO ERR");
+					  LV_SYMBOL_WARNING " TODO");
 	} else {
-		lv_obj_set_style_text_color(s_todo_title_label, lv_color_hex(0xFFD54F), 0);
+		lv_obj_set_style_text_color(s_todo_title_label, color_status_wait(), 0);
 		set_label_text_if_changed(s_todo_title_label, s_last_todo_title_text, sizeof(s_last_todo_title_text),
-					  "TODO WAIT");
+					  LV_SYMBOL_WARNING " TODO");
 	}
 
 	if (environment_service_get_snapshot(&snapshot)) {
@@ -1649,18 +1842,30 @@ static void display_update_labels(void)
 	}
 
 	if (todo_snapshot.count > 0U) {
+		lv_obj_set_style_text_color(s_todo_item_1_label,
+					    todo_snapshot.items[0].done ? color_text_muted() : color_text_main(), 0);
+		snprintf(env_buf, sizeof(env_buf), "%s %s", todo_snapshot.items[0].done ? LV_SYMBOL_OK : LV_SYMBOL_BULLET,
+			 todo_snapshot.items[0].text);
 		set_label_text_if_changed(s_todo_item_1_label, s_last_todo_item_1_text, sizeof(s_last_todo_item_1_text),
-					  todo_snapshot.items[0].text);
+					  env_buf);
 		if (todo_snapshot.count > 1U) {
+			lv_obj_set_style_text_color(s_todo_item_2_label,
+						    todo_snapshot.items[1].done ? color_text_muted() : color_text_main(), 0);
+			snprintf(env_buf, sizeof(env_buf), "%s %s",
+				 todo_snapshot.items[1].done ? LV_SYMBOL_OK : LV_SYMBOL_BULLET, todo_snapshot.items[1].text);
 			set_label_text_if_changed(s_todo_item_2_label, s_last_todo_item_2_text,
-						  sizeof(s_last_todo_item_2_text), todo_snapshot.items[1].text);
+						  sizeof(s_last_todo_item_2_text), env_buf);
 		} else {
 			set_label_text_if_changed(s_todo_item_2_label, s_last_todo_item_2_text,
 						  sizeof(s_last_todo_item_2_text), "");
 		}
 		if (todo_snapshot.count > 2U) {
+			lv_obj_set_style_text_color(s_todo_more_label,
+						    todo_snapshot.items[2].done ? color_text_muted() : color_text_main(), 0);
+			snprintf(env_buf, sizeof(env_buf), "%s %s",
+				 todo_snapshot.items[2].done ? LV_SYMBOL_OK : LV_SYMBOL_BULLET, todo_snapshot.items[2].text);
 			set_label_text_if_changed(s_todo_more_label, s_last_todo_item_3_text,
-						  sizeof(s_last_todo_item_3_text), todo_snapshot.items[2].text);
+						  sizeof(s_last_todo_item_3_text), env_buf);
 		} else {
 			set_label_text_if_changed(s_todo_more_label, s_last_todo_item_3_text,
 						  sizeof(s_last_todo_item_3_text), "");
@@ -1674,6 +1879,7 @@ static void display_update_labels(void)
 						  "");
 		}
 	} else {
+		lv_obj_set_style_text_color(s_todo_item_1_label, color_text_muted(), 0);
 		set_label_text_if_changed(s_todo_item_1_label, s_last_todo_item_1_text, sizeof(s_last_todo_item_1_text),
 					  "No todo");
 		set_label_text_if_changed(s_todo_item_2_label, s_last_todo_item_2_text, sizeof(s_last_todo_item_2_text),
