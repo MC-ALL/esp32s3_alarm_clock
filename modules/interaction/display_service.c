@@ -479,6 +479,14 @@ static void copy_display_text(char *out, size_t out_size, const char *text, size
 	memcpy(out + copy_len, "...", 4U);
 }
 
+static void format_todo_item_text(char *out, size_t out_size, bool done, const char *text)
+{
+	char item_text[80];
+
+	copy_display_text(item_text, sizeof(item_text), text, 26U);
+	snprintf(out, out_size, "%s %s", done ? LV_SYMBOL_OK : LV_SYMBOL_BULLET, item_text);
+}
+
 static bool display_audio_event_enabled(app_audio_event_t event_id)
 {
 	switch (event_id) {
@@ -849,7 +857,7 @@ static void display_update_alarm_page(void)
 	}
 
 	if (s_alarm_view == ALARM_VIEW_ACTION) {
-		snprintf(line, sizeof(line), "ITEM: %s", detail_buf);
+		snprintf(line, sizeof(line), "ITEM: %.56s", detail_buf);
 		display_set_line(s_alarm_lines, 0, line, color_text_main());
 		snprintf(line, sizeof(line), "%s %s EDIT", s_alarm_action_focus == ALARM_ACTION_EDIT ? ">" : " ",
 			 LV_SYMBOL_EDIT);
@@ -1844,15 +1852,14 @@ static void display_update_labels(void)
 	if (todo_snapshot.count > 0U) {
 		lv_obj_set_style_text_color(s_todo_item_1_label,
 					    todo_snapshot.items[0].done ? color_text_muted() : color_text_main(), 0);
-		snprintf(env_buf, sizeof(env_buf), "%s %s", todo_snapshot.items[0].done ? LV_SYMBOL_OK : LV_SYMBOL_BULLET,
-			 todo_snapshot.items[0].text);
+		format_todo_item_text(env_buf, sizeof(env_buf), todo_snapshot.items[0].done, todo_snapshot.items[0].text);
 		set_label_text_if_changed(s_todo_item_1_label, s_last_todo_item_1_text, sizeof(s_last_todo_item_1_text),
 					  env_buf);
 		if (todo_snapshot.count > 1U) {
 			lv_obj_set_style_text_color(s_todo_item_2_label,
 						    todo_snapshot.items[1].done ? color_text_muted() : color_text_main(), 0);
-			snprintf(env_buf, sizeof(env_buf), "%s %s",
-				 todo_snapshot.items[1].done ? LV_SYMBOL_OK : LV_SYMBOL_BULLET, todo_snapshot.items[1].text);
+			format_todo_item_text(env_buf, sizeof(env_buf), todo_snapshot.items[1].done,
+					      todo_snapshot.items[1].text);
 			set_label_text_if_changed(s_todo_item_2_label, s_last_todo_item_2_text,
 						  sizeof(s_last_todo_item_2_text), env_buf);
 		} else {
@@ -1862,8 +1869,8 @@ static void display_update_labels(void)
 		if (todo_snapshot.count > 2U) {
 			lv_obj_set_style_text_color(s_todo_more_label,
 						    todo_snapshot.items[2].done ? color_text_muted() : color_text_main(), 0);
-			snprintf(env_buf, sizeof(env_buf), "%s %s",
-				 todo_snapshot.items[2].done ? LV_SYMBOL_OK : LV_SYMBOL_BULLET, todo_snapshot.items[2].text);
+			format_todo_item_text(env_buf, sizeof(env_buf), todo_snapshot.items[2].done,
+					      todo_snapshot.items[2].text);
 			set_label_text_if_changed(s_todo_more_label, s_last_todo_item_3_text,
 						  sizeof(s_last_todo_item_3_text), env_buf);
 		} else {

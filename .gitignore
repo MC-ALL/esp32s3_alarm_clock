@@ -2,11 +2,10 @@
 
 now.txt
 
-<<<<<<< HEAD
-
-
-=======
 .agent/
 .agents/
 .codex/
->>>>>>> b18b143e732c249b28dd51765c26c4fae8e9caf1
+
+build/
+managed_components/
+sdkconfig
