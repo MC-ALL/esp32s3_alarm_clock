@@ -2,11 +2,11 @@
 #define APP_APP_CONFIG_H_
 
 #ifndef APP_WIFI_STA_SSID
-#define APP_WIFI_STA_SSID "lbxx"
+#define APP_WIFI_STA_SSID "Xiaomi 13_2044"
 #endif
 
 #ifndef APP_WIFI_STA_PASSWORD
-#define APP_WIFI_STA_PASSWORD "1737438450"
+#define APP_WIFI_STA_PASSWORD "v6bgz54yb3whuca"
 #endif
 
 #ifndef APP_SNTP_SERVER
