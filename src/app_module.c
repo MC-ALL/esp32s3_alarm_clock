@@ -16,9 +16,9 @@ static const struct app_module_desc MODULES[] = {
 	{ .name = "ui_model", .init = ui_model_init, .start = ui_model_start, .stop = ui_model_stop },
 	{ .name = "environment_service", .init = environment_service_init, .start = environment_service_start, .stop = environment_service_stop },
 	{ .name = "presence_service", .init = presence_service_init, .start = presence_service_start, .stop = presence_service_stop },
-	{ .name = "reminder_service", .init = reminder_service_init, .start = reminder_service_start, .stop = reminder_service_stop },
 	{ .name = "audio_service", .init = audio_service_init, .start = audio_service_start, .stop = audio_service_stop },
 	{ .name = "net_service", .init = net_service_init, .start = net_service_start, .stop = net_service_stop },
+	{ .name = "reminder_service", .init = reminder_service_init, .start = reminder_service_start, .stop = reminder_service_stop },
 	{ .name = "lifecycle_service", .init = lifecycle_service_init, .start = lifecycle_service_start, .stop = lifecycle_service_stop },
 };
 

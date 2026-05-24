@@ -20,6 +20,7 @@ static TaskHandle_t s_audio_task;
 static uint8_t s_volume = 6;
 static int64_t s_audio_blocked_until_us;
 static volatile bool s_audio_busy;
+static bool s_i2s_enabled;
 
 typedef struct {
 	app_audio_event_t event_id;
@@ -169,6 +170,56 @@ static int audio_play_wav_pcm(const uint8_t *wav_data, size_t wav_size)
 	return 0;
 }
 
+static int audio_play_silence_ms(uint32_t duration_ms)
+{
+	int16_t silence[256] = { 0 };
+	size_t bytes_written = 0;
+	size_t sample_count = ((size_t)duration_ms * 16000U) / 1000U;
+
+	while (sample_count > 0U) {
+		const size_t chunk_samples = sample_count > 256U ? 256U : sample_count;
+		esp_err_t err = i2s_channel_write(s_tx_handle, silence, chunk_samples * sizeof(int16_t),
+						   &bytes_written, 1000);
+		if (err != ESP_OK) {
+			ESP_LOGW(TAG, "silence write failed: %s", esp_err_to_name(err));
+			return (int)err;
+		}
+		sample_count -= chunk_samples;
+	}
+
+	return 0;
+}
+
+static int audio_enable_output(void)
+{
+	if (s_i2s_enabled) {
+		return 0;
+	}
+
+	esp_err_t err = i2s_channel_enable(s_tx_handle);
+	if (err != ESP_OK) {
+		ESP_LOGE(TAG, "i2s_channel_enable failed: %s", esp_err_to_name(err));
+		return (int)err;
+	}
+	s_i2s_enabled = true;
+	return 0;
+}
+
+static void audio_disable_output(void)
+{
+	if (!s_i2s_enabled) {
+		return;
+	}
+
+	(void)audio_play_silence_ms(40);
+	esp_err_t err = i2s_channel_disable(s_tx_handle);
+	if (err != ESP_OK) {
+		ESP_LOGW(TAG, "i2s_channel_disable failed: %s", esp_err_to_name(err));
+		return;
+	}
+	s_i2s_enabled = false;
+}
+
 static const app_audio_clip_t *audio_get_clip(app_audio_event_t event_id)
 {
 	switch (event_id) {
@@ -191,6 +242,7 @@ static const app_audio_clip_t *audio_get_clip(app_audio_event_t event_id)
 	case APP_AUDIO_EVENT_REST_REMINDER:
 		return &APP_CLIP_REST;
 	case APP_AUDIO_EVENT_ALARM:
+	case APP_AUDIO_EVENT_HOUR_CHIME:
 		return &APP_CLIP_ALARM;
 	case APP_AUDIO_EVENT_CONFIRM:
 	case APP_AUDIO_EVENT_TEST:
@@ -211,7 +263,10 @@ static void audio_task(void *arg)
 
 		s_audio_busy = true;
 		ESP_LOGI(TAG, "play event=%d size=%u", (int)request.event_id, (unsigned)request.wav_size);
-		(void)audio_play_wav_pcm(request.wav_data, request.wav_size);
+		if (audio_enable_output() == 0) {
+			(void)audio_play_wav_pcm(request.wav_data, request.wav_size);
+			audio_disable_output();
+		}
 		s_audio_busy = false;
 		s_audio_blocked_until_us = esp_timer_get_time() + 3000000LL;
 	}
@@ -261,12 +316,6 @@ int audio_service_init(void)
 
 int audio_service_start(void)
 {
-	esp_err_t err = i2s_channel_enable(s_tx_handle);
-	if (err != ESP_OK) {
-		ESP_LOGE(TAG, "i2s_channel_enable failed: %s", esp_err_to_name(err));
-		return (int)err;
-	}
-
 	BaseType_t ok = xTaskCreate(audio_task, "audio_task", 4096, NULL, 8, &s_audio_task);
 	if (ok != pdPASS) {
 		ESP_LOGE(TAG, "failed to create audio task");
@@ -289,7 +338,7 @@ int audio_service_stop(void)
 	}
 
 	if (s_tx_handle != NULL) {
-		(void)i2s_channel_disable(s_tx_handle);
+		audio_disable_output();
 		(void)i2s_del_channel(s_tx_handle);
 		s_tx_handle = NULL;
 	}

@@ -1,8 +1,8 @@
 #include "app_module.h"
 #include <app/app_config.h>
-#include <app/audio_service.h>
 #include <app/module_common.h>
 #include <app/net_service.h>
+#include <app/settings_model.h>
 
 #include <ctype.h>
 #include <esp_err.h>
@@ -38,6 +38,7 @@ static bool s_sntp_sync_timer_running;
 static esp_timer_handle_t s_todo_sync_timer;
 static bool s_todo_sync_timer_running;
 static bool s_todo_sync_in_progress;
+static int64_t s_last_todo_auto_sync_us;
 static QueueHandle_t s_todo_request_queue;
 static TaskHandle_t s_todo_task;
 
@@ -138,7 +139,7 @@ static void net_service_start_todo_sync_timer(void)
 	if (s_todo_sync_timer == NULL || s_todo_sync_timer_running) {
 		return;
 	}
-	if (esp_timer_start_periodic(s_todo_sync_timer, (uint64_t)APP_TODO_SYNC_INTERVAL_S * 1000000ULL) == ESP_OK) {
+	if (esp_timer_start_periodic(s_todo_sync_timer, 60000000ULL) == ESP_OK) {
 		s_todo_sync_timer_running = true;
 	}
 }
@@ -407,7 +408,19 @@ static void net_service_todo_task(void *arg)
 static void net_service_todo_sync_cb(void *arg)
 {
 	(void)arg;
-	(void)net_service_queue_todo_sync();
+
+	app_settings_t settings = { 0 };
+	settings_model_get(&settings);
+	const uint32_t interval_s = settings.todo_refresh_min > 0U ? (uint32_t)settings.todo_refresh_min * 60U :
+								 APP_TODO_SYNC_INTERVAL_S;
+	const int64_t now_us = esp_timer_get_time();
+	if (s_last_todo_auto_sync_us > 0 && (now_us - s_last_todo_auto_sync_us) < (int64_t)interval_s * 1000000LL) {
+		return;
+	}
+
+	if (net_service_queue_todo_sync() == 0) {
+		s_last_todo_auto_sync_us = now_us;
+	}
 }
 
 static void net_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
@@ -455,6 +468,7 @@ static void net_event_handler(void *arg, esp_event_base_t event_base, int32_t ev
 		net_service_start_sntp();
 		net_service_start_sntp_sync_timer();
 		net_service_start_todo_sync_timer();
+		s_last_todo_auto_sync_us = 0;
 		net_service_try_mark_time_synced();
 		ESP_LOGI(TAG, "got ip, sntp started and periodic sync enabled");
 		return;
@@ -512,6 +526,12 @@ int net_service_init(void)
 	err = esp_wifi_set_mode(WIFI_MODE_STA);
 	if (err != ESP_OK) {
 		ESP_LOGE(TAG, "esp_wifi_set_mode failed: %s", esp_err_to_name(err));
+		goto fail;
+	}
+
+	err = esp_wifi_set_ps(WIFI_PS_NONE);
+	if (err != ESP_OK) {
+		ESP_LOGE(TAG, "esp_wifi_set_ps failed: %s", esp_err_to_name(err));
 		goto fail;
 	}
 
@@ -602,6 +622,7 @@ int net_service_stop(void)
 	net_service_stop_sntp_sync_timer();
 	net_service_stop_todo_sync_timer();
 	s_todo_sync_in_progress = false;
+	s_last_todo_auto_sync_us = 0;
 	s_todo_snapshot.sync_in_progress = false;
 
 	if (s_todo_task != NULL) {
