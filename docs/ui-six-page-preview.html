@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Smart Clock Six Page UI Preview</title>
+  <style>
+    :root {
+      --w: 240px;
+      --h: 320px;
+      --main: 240px;
+      --keys: 80px;
+      --font: Arial, Helvetica, sans-serif;
+      --black: #000;
+      --white: #fff;
+      --blue: #0057d8;
+      --orange: #c95400;
+      --purple: #5b2cbf;
+      --teal: #007a99;
+      --green: #16833a;
+      --dark: #101418;
+      --gray: #26313d;
+      --red: #c31828;
+      --yellow: #d19a00;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 24px;
+      background: #d7dbe0;
+      color: #17202a;
+      font-family: var(--font);
+    }
+
+    .note {
+      max-width: 1120px;
+      margin: 0 auto 20px;
+      font-size: 14px;
+      line-height: 1.45;
+      font-weight: 700;
+    }
+
+    .grid {
+      width: min(100%, 1160px);
+      margin: 0 auto 28px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, 240px);
+      justify-content: center;
+      gap: 24px;
+    }
+
+    .caption {
+      height: 15px;
+      margin-bottom: 7px;
+      text-align: center;
+      font-size: 13px;
+      line-height: 1.1;
+      font-weight: 900;
+      color: #202832;
+    }
+
+    .screen {
+      width: var(--w);
+      height: var(--h);
+      overflow: hidden;
+      background: var(--black);
+      box-shadow: 0 16px 38px rgba(0, 0, 0, 0.22);
+    }
+
+    .main {
+      width: var(--w);
+      height: var(--main);
+      overflow: hidden;
+      color: var(--white);
+      background: var(--gray);
+    }
+
+    .blue { background: var(--blue); }
+    .orange { background: var(--orange); }
+    .purple { background: var(--purple); }
+    .teal { background: var(--teal); }
+    .green { background: var(--green); }
+    .dark { background: var(--dark); }
+    .red { background: var(--red); }
+    .yellow { background: var(--yellow); }
+
+    .home-grid,
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 120px 120px;
+      grid-template-rows: 120px 120px;
+    }
+
+    .tile {
+      width: 120px;
+      height: 120px;
+      padding: 4px;
+      overflow: hidden;
+      display: grid;
+      align-content: center;
+      justify-items: center;
+      text-align: center;
+      color: var(--white);
+    }
+
+    .tile.time {
+      grid-column: 1 / 3;
+      width: 240px;
+      background: var(--blue);
+      gap: 6px;
+    }
+
+    .tile.alarm { background: var(--orange); }
+    .tile.todo { background: var(--purple); }
+    .tile.temp { background: var(--green); }
+    .tile.humi { background: #006f6a; }
+    .tile.lux { background: #6e7300; }
+    .tile.alert { background: var(--red); }
+    .tile.wifi { background: var(--teal); }
+    .tile.ip { background: #245a7a; }
+    .tile.sync { background: #5d4e9d; }
+    .tile.todo-net { background: #476600; }
+
+    .seven {
+      color: var(--white);
+      font-family: Arial Black, Impact, var(--font);
+      font-weight: 900;
+      letter-spacing: 0;
+      line-height: 0.86;
+      white-space: nowrap;
+    }
+
+    .time-text { font-size: 76px; }
+    .date-text { font-size: 33px; line-height: 0.9; }
+    .tile-title {
+      width: 112px;
+      font-size: 24px;
+      line-height: 1;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+    .tile-title.small { font-size: 21px; }
+    .tile-big { font-size: 38px; }
+    .tile-count { font-size: 77px; }
+    .tile-mid { font-size: 39px; }
+    .tile-small { font-size: 24px; line-height: 1; }
+    .tile.alert .tile-small { font-size: 21px; }
+
+    .page {
+      padding: 4px;
+      display: grid;
+      grid-template-rows: 27px 1fr;
+      gap: 3px;
+    }
+
+    .topline {
+      width: 232px;
+      height: 27px;
+      display: grid;
+      grid-template-columns: 1fr 42px;
+      align-items: start;
+      column-gap: 3px;
+      font-size: 24px;
+      line-height: 1;
+      font-weight: 900;
+    }
+
+    .page-no {
+      font-size: 18px;
+      line-height: 1.1;
+      text-align: right;
+      color: rgba(255, 255, 255, 0.78);
+    }
+
+    .card-list {
+      width: 232px;
+      display: grid;
+      grid-auto-rows: 50px;
+      gap: 3px;
+    }
+
+    .item {
+      width: 232px;
+      height: 50px;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 62px 1fr 42px;
+      align-items: center;
+      column-gap: 4px;
+      padding: 0 3px;
+      background: rgba(0, 0, 0, 0.2);
+      color: var(--white);
+    }
+
+    .item.selected {
+      background: var(--white);
+      color: var(--black);
+    }
+
+    .item-time {
+      font-size: 19px;
+      line-height: 1;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .item-main {
+      font-size: 18px;
+      line-height: 1;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .item-sub {
+      margin-top: 3px;
+      font-size: 13px;
+      line-height: 1;
+      font-weight: 900;
+      white-space: nowrap;
+      opacity: 0.85;
+    }
+
+    .item-state {
+      font-size: 16px;
+      line-height: 1;
+      font-weight: 900;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .settings {
+      padding: 4px;
+      display: grid;
+      grid-template-rows: 32px 1fr;
+      gap: 4px;
+    }
+
+    .settings-title {
+      width: 232px;
+      height: 32px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      column-gap: 4px;
+      font-size: 29px;
+      line-height: 1;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .settings-title .scope {
+      font-size: 18px;
+      text-align: right;
+      opacity: 0.85;
+    }
+
+    .list {
+      width: 232px;
+      display: grid;
+      grid-auto-rows: 30px;
+      align-content: start;
+      gap: 1px;
+    }
+
+    .row {
+      width: 232px;
+      height: 30px;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 18px 1fr 58px;
+      align-items: center;
+      column-gap: 2px;
+      font-size: 19px;
+      line-height: 1;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .row .value {
+      text-align: right;
+      font-size: 18px;
+      color: rgba(255, 255, 255, 0.9);
+      white-space: nowrap;
+    }
+
+    .row.selected {
+      background: var(--white);
+      color: var(--black);
+    }
+
+    .row.selected .value { color: var(--black); }
+
+    .keys {
+      width: var(--w);
+      height: var(--keys);
+      display: grid;
+      grid-template-columns: repeat(4, 60px);
+      background: var(--black);
+    }
+
+    .key {
+      width: 60px;
+      height: 80px;
+      position: relative;
+      display: grid;
+      align-items: center;
+      justify-items: center;
+      overflow: hidden;
+      background: var(--black);
+      color: var(--white);
+    }
+
+    .key.primary {
+      background: var(--white);
+      color: var(--black);
+    }
+
+    .key.disabled {
+      opacity: 0.24;
+    }
+
+    .ico {
+      display: block;
+      position: relative;
+      width: 42px;
+      height: 42px;
+      color: currentColor;
+    }
+
+    .ico::before,
+    .ico::after {
+      display: block;
+      position: absolute;
+      content: "";
+      color: currentColor;
+    }
+
+    .home-ico::before {
+      left: 8px;
+      top: 19px;
+      width: 26px;
+      height: 18px;
+      border: 5px solid currentColor;
+      border-top: 0;
+    }
+
+    .home-ico::after {
+      left: 9px;
+      top: 5px;
+      width: 24px;
+      height: 24px;
+      border-left: 5px solid currentColor;
+      border-top: 5px solid currentColor;
+      transform: rotate(45deg);
+    }
+
+    .gear-ico {
+      width: 38px;
+      height: 38px;
+      border: 7px solid currentColor;
+      border-radius: 50%;
+    }
+
+    .gear-ico::before {
+      left: -7px;
+      top: 8px;
+      width: 38px;
+      height: 8px;
+      background: currentColor;
+    }
+
+    .gear-ico::after {
+      left: 8px;
+      top: -7px;
+      width: 8px;
+      height: 38px;
+      background: currentColor;
+    }
+
+    .arrow-left::before,
+    .arrow-right::before,
+    .arrow-up::before,
+    .arrow-down::before,
+    .back-ico::before {
+      width: 26px;
+      height: 26px;
+      border-left: 7px solid currentColor;
+      border-bottom: 7px solid currentColor;
+    }
+
+    .arrow-left::before { left: 12px; top: 8px; transform: rotate(45deg); }
+    .arrow-right::before { left: 3px; top: 8px; transform: rotate(225deg); }
+    .arrow-up::before { left: 8px; top: 13px; transform: rotate(135deg); }
+    .arrow-down::before { left: 8px; top: 3px; transform: rotate(315deg); }
+
+    .back-ico::before { left: 13px; top: 8px; transform: rotate(45deg); }
+    .back-ico::after {
+      left: 16px;
+      top: 19px;
+      width: 24px;
+      height: 7px;
+      background: currentColor;
+    }
+
+    .check-ico::before {
+      left: 8px;
+      top: 18px;
+      width: 27px;
+      height: 15px;
+      border-left: 8px solid currentColor;
+      border-bottom: 8px solid currentColor;
+      transform: rotate(-45deg);
+    }
+
+    .low-clock {
+      width: 232px;
+      height: 178px;
+      display: grid;
+      align-content: center;
+      justify-items: center;
+      gap: 9px;
+      background: var(--dark);
+    }
+  </style>
+</head>
+<body>
+  <div class="note">
+    240x320 preview. Bottom keys use icon-only controls. Main pages loop left/right.
+    WiFi has no settings entry because the firmware has no settings backend for it yet.
+  </div>
+
+  <div class="grid">
+    <div>
+      <div class="caption">1/6 Home</div>
+      <div class="screen">
+        <div class="main home-grid">
+          <div class="tile time">
+            <div class="seven time-text">19:48</div>
+            <div class="seven date-text">05-24</div>
+          </div>
+          <div class="tile alarm">
+            <div class="tile-title">ALARM</div>
+            <div class="seven tile-big">07:30</div>
+          </div>
+          <div class="tile todo">
+            <div class="tile-title">TODO</div>
+            <div class="seven tile-count">5</div>
+          </div>
+        </div>
+        <div class="keys">
+          <div class="key primary"><span class="ico home-ico"></span></div>
+          <div class="key"><span class="ico arrow-left"></span></div>
+          <div class="key"><span class="ico arrow-right"></span></div>
+          <div class="key"><span class="ico gear-ico"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="caption">2/6 Alarm</div>
+      <div class="screen">
+        <div class="main page orange">
+          <div class="topline"><span>ALARM</span><span class="page-no">2/6</span></div>
+          <div class="card-list">
+            <div class="item selected"><div class="item-time">07:30</div><div><div class="item-main">WORK</div><div class="item-sub">MON-FRI</div></div><div class="item-state">ON</div></div>
+            <div class="item"><div class="item-time">08:00</div><div><div class="item-main">WEEKEND</div><div class="item-sub">SAT-SUN</div></div><div class="item-state">ON</div></div>
+            <div class="item"><div class="item-time">20:15</div><div><div class="item-main">MED</div><div class="item-sub">DAILY</div></div><div class="item-state">OFF</div></div>
+            <div class="item"><div class="item-time">21:40</div><div><div class="item-main">SLEEP</div><div class="item-sub">DAILY</div></div><div class="item-state">ON</div></div>
+          </div>
+        </div>
+        <div class="keys">
+          <div class="key"><span class="ico home-ico"></span></div>
+          <div class="key"><span class="ico arrow-left"></span></div>
+          <div class="key"><span class="ico arrow-right"></span></div>
+          <div class="key primary"><span class="ico gear-ico"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="caption">3/6 Todo</div>
+      <div class="screen">
+        <div class="main page purple">
+          <div class="topline"><span>TODO</span><span class="page-no">3/6</span></div>
+          <div class="card-list">
+            <div class="item selected"><div class="item-time">09:00</div><div><div class="item-main">STANDUP</div><div class="item-sub">TODAY</div></div><div class="item-state">OPEN</div></div>
+            <div class="item"><div class="item-time">11:30</div><div><div class="item-main">BUY MILK</div><div class="item-sub">HOME</div></div><div class="item-state">OPEN</div></div>
+            <div class="item"><div class="item-time">15:00</div><div><div class="item-main">REPORT</div><div class="item-sub">WORK</div></div><div class="item-state">DONE</div></div>
+            <div class="item"><div class="item-time">18:20</div><div><div class="item-main">WALK</div><div class="item-sub">HEALTH</div></div><div class="item-state">OPEN</div></div>
+          </div>
+        </div>
+        <div class="keys">
+          <div class="key"><span class="ico home-ico"></span></div>
+          <div class="key"><span class="ico arrow-left"></span></div>
+          <div class="key"><span class="ico arrow-right"></span></div>
+          <div class="key primary"><span class="ico gear-ico"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="caption">4/6 Env</div>
+      <div class="screen">
+        <div class="main metric-grid">
+          <div class="tile temp"><div class="tile-title">TEMP</div><div class="seven tile-mid">26C</div></div>
+          <div class="tile humi"><div class="tile-title">HUMI</div><div class="seven tile-mid">58%</div></div>
+          <div class="tile lux"><div class="tile-title">LUX</div><div class="seven tile-mid">210</div></div>
+          <div class="tile alert"><div class="tile-title small">ALERT</div><div class="seven tile-small">NORMAL</div></div>
+        </div>
+        <div class="keys">
+          <div class="key"><span class="ico home-ico"></span></div>
+          <div class="key"><span class="ico arrow-left"></span></div>
+          <div class="key"><span class="ico arrow-right"></span></div>
+          <div class="key primary"><span class="ico gear-ico"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="caption">5/6 WiFi</div>
+      <div class="screen">
+        <div class="main metric-grid">
+          <div class="tile wifi"><div class="tile-title">WIFI</div><div class="seven tile-small">ONLINE</div></div>
+          <div class="tile ip"><div class="tile-title">IP</div><div class="seven tile-small">READY</div></div>
+          <div class="tile sync"><div class="tile-title">TIME</div><div class="seven tile-small">SYNC</div></div>
+          <div class="tile todo-net"><div class="tile-title">TODO</div><div class="seven tile-small">OK</div></div>
+        </div>
+        <div class="keys">
+          <div class="key"><span class="ico home-ico"></span></div>
+          <div class="key"><span class="ico arrow-left"></span></div>
+          <div class="key"><span class="ico arrow-right"></span></div>
+          <div class="key disabled"><span class="ico gear-ico"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="caption">6/6 Low Clock</div>
+      <div class="screen">
+        <div class="main page dark">
+          <div class="topline"><span>CLOCK</span><span class="page-no">6/6</span></div>
+          <div class="low-clock">
+            <div class="seven time-text">19:48</div>
+            <div class="seven date-text">LOW</div>
+          </div>
+        </div>
+        <div class="keys">
+          <div class="key"><span class="ico home-ico"></span></div>
+          <div class="key"><span class="ico arrow-left"></span></div>
+          <div class="key"><span class="ico arrow-right"></span></div>
+          <div class="key primary"><span class="ico gear-ico"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div>
+      <div class="caption">Home Settings</div>
+      <div class="screen">
+        <div class="main settings blue">
+          <div class="settings-title"><span>HOME</span><span class="scope">SET</span></div>
+          <div class="list">
+            <div class="row selected"><span>&gt;</span><span>LAYOUT</span><span class="value">FULL</span></div>
+            <div class="row"><span></span><span>CLOCK</span><span class="value">ONLY</span></div>
+            <div class="row"><span></span><span>FORMAT</span><span class="value">24H</span></div>
+          </div>
+        </div>
+        <div class="keys">
+          <div class="key"><span class="ico back-ico"></span></div>
+          <div class="key"><span class="ico arrow-up"></span></div>
+          <div class="key"><span class="ico arrow-down"></span></div>
+          <div class="key primary"><span class="ico check-ico"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="caption">Alarm Global</div>
+      <div class="screen">
+        <div class="main settings orange">
+          <div class="settings-title"><span>ALARM</span><span class="scope">ALL</span></div>
+          <div class="list">
+            <div class="row selected"><span>&gt;</span><span>VOICE</span><span class="value">ON</span></div>
+            <div class="row"><span></span><span>TEST</span><span class="value">PLAY</span></div>
+            <div class="row"><span></span><span>ADD</span><span class="value">NEW</span></div>
+            <div class="row"><span></span><span>DELETE</span><span class="value">SEL</span></div>
+            <div class="row"><span></span><span>07:30</span><span class="value">EDIT</span></div>
+            <div class="row"><span></span><span>08:00</span><span class="value">EDIT</span></div>
+          </div>
+        </div>
+        <div class="keys">
+          <div class="key"><span class="ico back-ico"></span></div>
+          <div class="key"><span class="ico arrow-up"></span></div>
+          <div class="key"><span class="ico arrow-down"></span></div>
+          <div class="key primary"><span class="ico check-ico"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="caption">Alarm Item</div>
+      <div class="screen">
+        <div class="main settings orange">
+          <div class="settings-title"><span>07:30</span><span class="scope">EDIT</span></div>
+          <div class="list">
+            <div class="row selected"><span>&gt;</span><span>TIME</span><span class="value">07:30</span></div>
+            <div class="row"><span></span><span>REPEAT</span><span class="value">WEEK</span></div>
+            <div class="row"><span></span><span>VOICE</span><span class="value">ON</span></div>
+            <div class="row"><span></span><span>ENABLE</span><span class="value">ON</span></div>
+          </div>
+        </div>
+        <div class="keys">
+          <div class="key"><span class="ico back-ico"></span></div>
+          <div class="key"><span class="ico arrow-up"></span></div>
+          <div class="key"><span class="ico arrow-down"></span></div>
+          <div class="key primary"><span class="ico check-ico"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="caption">Todo Global</div>
+      <div class="screen">
+        <div class="main settings purple">
+          <div class="settings-title"><span>TODO</span><span class="scope">ALL</span></div>
+          <div class="list">
+            <div class="row selected"><span>&gt;</span><span>SYNC</span><span class="value">NOW</span></div>
+            <div class="row"><span></span><span>REFRESH</span><span class="value">15M</span></div>
+            <div class="row"><span></span><span>VOICE</span><span class="value">ON</span></div>
+            <div class="row"><span></span><span>TEST</span><span class="value">PLAY</span></div>
+            <div class="row"><span></span><span>STANDUP</span><span class="value">OPEN</span></div>
+            <div class="row"><span></span><span>REPORT</span><span class="value">DONE</span></div>
+          </div>
+        </div>
+        <div class="keys">
+          <div class="key"><span class="ico back-ico"></span></div>
+          <div class="key"><span class="ico arrow-up"></span></div>
+          <div class="key"><span class="ico arrow-down"></span></div>
+          <div class="key primary"><span class="ico check-ico"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="caption">Todo Item OK</div>
+      <div class="screen">
+        <div class="main settings purple">
+          <div class="settings-title"><span>TODO</span><span class="scope">DONE</span></div>
+          <div class="list">
+            <div class="row selected"><span>&gt;</span><span>STANDUP</span><span class="value">OPEN</span></div>
+            <div class="row"><span></span><span>OK MARKS</span><span class="value">DONE</span></div>
+            <div class="row"><span></span><span>NO ITEM SET</span><span class="value"></span></div>
+          </div>
+        </div>
+        <div class="keys">
+          <div class="key"><span class="ico back-ico"></span></div>
+          <div class="key"><span class="ico arrow-up"></span></div>
+          <div class="key"><span class="ico arrow-down"></span></div>
+          <div class="key primary"><span class="ico check-ico"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="caption">Env Settings</div>
+      <div class="screen">
+        <div class="main settings green">
+          <div class="settings-title"><span>ENV</span><span class="scope">ALL</span></div>
+          <div class="list">
+            <div class="row selected"><span>&gt;</span><span>VOICE</span><span class="value">ON</span></div>
+            <div class="row"><span></span><span>TEST</span><span class="value">PLAY</span></div>
+            <div class="row"><span></span><span>SAMPLE</span><span class="value">10S</span></div>
+            <div class="row"><span></span><span>THRESH</span><span class="value">SET</span></div>
+            <div class="row"><span></span><span>ALERT</span><span class="value">ON</span></div>
+          </div>
+        </div>
+        <div class="keys">
+          <div class="key"><span class="ico back-ico"></span></div>
+          <div class="key"><span class="ico arrow-up"></span></div>
+          <div class="key"><span class="ico arrow-down"></span></div>
+          <div class="key primary"><span class="ico check-ico"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="caption">Low Clock Settings</div>
+      <div class="screen">
+        <div class="main settings dark">
+          <div class="settings-title"><span>CLOCK</span><span class="scope">SET</span></div>
+          <div class="list">
+            <div class="row selected"><span>&gt;</span><span>FORMAT</span><span class="value">24H</span></div>
+            <div class="row"><span></span><span>FORMAT</span><span class="value">12H</span></div>
+          </div>
+        </div>
+        <div class="keys">
+          <div class="key"><span class="ico back-ico"></span></div>
+          <div class="key"><span class="ico arrow-up"></span></div>
+          <div class="key"><span class="ico arrow-down"></span></div>
+          <div class="key primary"><span class="ico check-ico"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

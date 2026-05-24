@@ -1,8 +1,8 @@
 #include "app_module.h"
-#include <app/display_service.h>
 #include <app/hw_config.h>
 #include <app/input_service.h>
 #include <app/module_common.h>
+#include <app/ui_model.h>
 
 #include <driver/gpio.h>
 #include <esp_err.h>
@@ -86,7 +86,7 @@ static void input_task(void *arg)
 
 			s_key_pressed_latched[key_index] = true;
 			ESP_LOGI(TAG, "key%u pressed", (unsigned)(key_index + 1));
-			display_service_handle_key_press((size_t)key_index);
+			ui_model_handle_key_press((size_t)key_index);
 		} else if (s_key_pressed_latched[key_index]) {
 			s_key_pressed_latched[key_index] = false;
 			ESP_LOGI(TAG, "key%u released", (unsigned)(key_index + 1));
