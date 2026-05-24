@@ -12,6 +12,7 @@
 #include <esp_netif.h>
 #include <esp_timer.h>
 #include <esp_wifi.h>
+#include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
@@ -308,17 +309,31 @@ static void net_service_sync_todos_once(void)
 		return;
 	}
 
+	static const size_t TODO_HTTP_BODY_CAP = 2048U;
 	char url[160];
-	char body[2048];
+	char *body = (char *)calloc(1, TODO_HTTP_BODY_CAP);
+	app_todo_snapshot_t *next_snapshot = (app_todo_snapshot_t *)malloc(sizeof(*next_snapshot));
+	if (body == NULL || next_snapshot == NULL) {
+		free(body);
+		free(next_snapshot);
+		s_todo_snapshot.sync_ok = false;
+		s_todo_snapshot.sync_in_progress = false;
+		strlcpy(s_todo_snapshot.last_error, "sync oom", sizeof(s_todo_snapshot.last_error));
+		ESP_LOGE(TAG, "todo sync oom heap=%u", (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+		return;
+	}
+
 	net_http_buffer_t buffer = {
 		.buffer = body,
 		.len = 0,
-		.cap = sizeof(body),
+		.cap = TODO_HTTP_BODY_CAP,
 	};
-	app_todo_snapshot_t next_snapshot = s_todo_snapshot;
+	*next_snapshot = s_todo_snapshot;
 	s_todo_sync_in_progress = true;
 	s_todo_snapshot.sync_in_progress = true;
 	(void)snprintf(url, sizeof(url), "http://%s:%d%s", APP_TODO_WEB_HOST, APP_TODO_WEB_PORT, APP_TODO_WEB_PATH);
+	ESP_LOGI(TAG, "todo sync start url=%s stack_hwm=%u heap=%u", url,
+		 (unsigned)uxTaskGetStackHighWaterMark(NULL), (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
 
 	esp_http_client_config_t cfg = {
 		.url = url,
@@ -331,32 +346,40 @@ static void net_service_sync_todos_once(void)
 		strlcpy(s_todo_snapshot.last_error, "client init failed", sizeof(s_todo_snapshot.last_error));
 		s_todo_snapshot.sync_in_progress = false;
 		s_todo_sync_in_progress = false;
+		free(next_snapshot);
+		free(body);
 		return;
 	}
 
 	esp_err_t err = esp_http_client_perform(client);
 	int status = esp_http_client_get_status_code(client);
-	if (err == ESP_OK && status == 200 && net_parse_todo_items(body, &next_snapshot)) {
-		next_snapshot.sync_ok = true;
-		next_snapshot.sync_in_progress = false;
-		next_snapshot.last_error[0] = '\0';
+	if (err == ESP_OK && status == 200 && net_parse_todo_items(body, next_snapshot)) {
+		next_snapshot->sync_ok = true;
+		next_snapshot->sync_in_progress = false;
+		next_snapshot->last_error[0] = '\0';
 		time_t now = 0;
 		struct tm timeinfo = { 0 };
 		time(&now);
 		localtime_r(&now, &timeinfo);
-		(void)snprintf(next_snapshot.last_sync_at, sizeof(next_snapshot.last_sync_at), "%02d:%02d:%02d",
+		(void)snprintf(next_snapshot->last_sync_at, sizeof(next_snapshot->last_sync_at), "%02d:%02d:%02d",
 			       timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
-		s_todo_snapshot = next_snapshot;
-		ESP_LOGI(TAG, "todo sync ok count=%u", (unsigned)s_todo_snapshot.count);
+		s_todo_snapshot = *next_snapshot;
+		ESP_LOGI(TAG, "todo sync ok count=%u bytes=%u stack_hwm=%u heap=%u",
+			 (unsigned)s_todo_snapshot.count, (unsigned)buffer.len,
+			 (unsigned)uxTaskGetStackHighWaterMark(NULL), (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
 	} else {
 		s_todo_snapshot.sync_ok = false;
 		s_todo_snapshot.sync_in_progress = false;
 		(void)snprintf(s_todo_snapshot.last_error, sizeof(s_todo_snapshot.last_error), "http err=%d status=%d",
 			       (int)err, status);
-		ESP_LOGW(TAG, "todo sync failed err=%d status=%d", (int)err, status);
+		ESP_LOGW(TAG, "todo sync failed err=%d status=%d bytes=%u stack_hwm=%u heap=%u",
+			 (int)err, status, (unsigned)buffer.len, (unsigned)uxTaskGetStackHighWaterMark(NULL),
+			 (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
 	}
 
 	esp_http_client_cleanup(client);
+	free(next_snapshot);
+	free(body);
 	s_todo_snapshot.sync_in_progress = false;
 	s_todo_sync_in_progress = false;
 }
@@ -500,6 +523,7 @@ int net_service_init(void)
 	}
 
 	wifi_init_config_t wifi_init_cfg = WIFI_INIT_CONFIG_DEFAULT();
+	wifi_init_cfg.nvs_enable = false;
 	err = esp_wifi_init(&wifi_init_cfg);
 	if (err != ESP_OK) {
 		ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(err));
@@ -572,7 +596,7 @@ int net_service_init(void)
 		goto fail;
 	}
 
-	BaseType_t task_ok = xTaskCreate(net_service_todo_task, "todo_sync_task", 4096, NULL, 6, &s_todo_task);
+	BaseType_t task_ok = xTaskCreate(net_service_todo_task, "todo_sync_task", 6144, NULL, 6, &s_todo_task);
 	if (task_ok != pdPASS) {
 		ESP_LOGE(TAG, "failed to create todo sync task");
 		err = ESP_ERR_NO_MEM;
@@ -583,8 +607,8 @@ int net_service_init(void)
 	if (strlen(APP_WIFI_STA_SSID) > 0U) {
 		strlcpy((char *)wifi_config.sta.ssid, APP_WIFI_STA_SSID, sizeof(wifi_config.sta.ssid));
 		strlcpy((char *)wifi_config.sta.password, APP_WIFI_STA_PASSWORD, sizeof(wifi_config.sta.password));
-		wifi_config.sta.threshold.authmode = WIFI_AUTH_OPEN;
-		wifi_config.sta.pmf_cfg.capable = true;
+		wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+		wifi_config.sta.pmf_cfg.capable = false;
 		wifi_config.sta.pmf_cfg.required = false;
 		err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
 		if (err != ESP_OK) {
