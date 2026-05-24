@@ -33,9 +33,9 @@
 #define APP_PIN_I2S_WS               14
 #define APP_PIN_I2S_DOUT             21
 
-#define APP_PIN_KEY1                 41
+#define APP_PIN_KEY1                 45
 #define APP_PIN_KEY2                 42
-#define APP_PIN_KEY3                 40
-#define APP_PIN_KEY4                 45
+#define APP_PIN_KEY3                 41
+#define APP_PIN_KEY4                 40
 
 #endif
