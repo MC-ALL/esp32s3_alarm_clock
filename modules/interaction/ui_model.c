@@ -240,6 +240,24 @@ static lv_obj_t *label_wrap(lv_obj_t *parent, const char *text, const lv_font_t 
 	return obj;
 }
 
+static void format_time_period(char *out, size_t out_size, bool use_24h)
+{
+	time_t now = 0;
+	struct tm t = { 0 };
+	time(&now);
+	localtime_r(&now, &t);
+
+	if (out_size == 0U) {
+		return;
+	}
+	if (t.tm_year < (2024 - 1900) || use_24h) {
+		out[0] = '\0';
+		return;
+	}
+
+	snprintf(out, out_size, t.tm_hour < 12 ? "AM" : "PM");
+}
+
 static void format_time(char *out, size_t out_size, bool use_24h, bool with_seconds)
 {
 	time_t now = 0;
@@ -423,21 +441,31 @@ static void sync_settings_from_model_for_main(void)
 static void render_home(lv_obj_t *screen)
 {
 	char time_text[16];
+	char period_text[4];
 	char date_text[16];
 	app_todo_snapshot_t todo = { 0 };
 	(void)net_service_get_todo_snapshot(&todo);
 	format_time(time_text, sizeof(time_text), s_use_24h, false);
+	format_time_period(period_text, sizeof(period_text), s_use_24h);
 	format_date(date_text, sizeof(date_text));
 
 	if (s_home_clock_only) {
 		box(screen, 0, 0, UI_SCREEN_W, UI_CONTENT_H, c_blue());
-		label(screen, time_text, UI_FONT_48, c_white(), 2, 62, 236, 64, LV_TEXT_ALIGN_CENTER);
+		label(screen, time_text, UI_FONT_48, c_white(), s_use_24h ? 2 : 10, 62, s_use_24h ? 236 : 188, 64,
+		      LV_TEXT_ALIGN_CENTER);
+		if (!s_use_24h) {
+			label(screen, period_text, UI_FONT_24, c_white(), 190, 82, 42, 26, LV_TEXT_ALIGN_LEFT);
+		}
 		label(screen, date_text, UI_FONT_30, c_white(), 2, 134, 236, 40, LV_TEXT_ALIGN_CENTER);
 		return;
 	}
 
 	box(screen, 0, 0, UI_SCREEN_W, UI_TILE_H, c_blue());
-	label(screen, time_text, UI_FONT_48, c_white(), 2, 22, 236, 62, LV_TEXT_ALIGN_CENTER);
+	label(screen, time_text, UI_FONT_48, c_white(), s_use_24h ? 2 : 10, 22, s_use_24h ? 236 : 188, 62,
+	      LV_TEXT_ALIGN_CENTER);
+	if (!s_use_24h) {
+		label(screen, period_text, UI_FONT_24, c_white(), 190, 42, 42, 26, LV_TEXT_ALIGN_LEFT);
+	}
 	label(screen, date_text, UI_FONT_24, c_white(), 2, 82, 236, 32, LV_TEXT_ALIGN_CENTER);
 
 	box(screen, 0, UI_TILE_H, UI_TILE_W, UI_TILE_H, c_orange());
@@ -611,11 +639,17 @@ static void render_wifi_page(lv_obj_t *screen)
 static void render_low_clock(lv_obj_t *screen)
 {
 	char time_text[16];
+	char period_text[4];
 	char date_text[16];
 	format_time(time_text, sizeof(time_text), s_low_use_24h, true);
+	format_time_period(period_text, sizeof(period_text), s_low_use_24h);
 	format_date(date_text, sizeof(date_text));
 	box(screen, 0, 0, UI_SCREEN_W, UI_CONTENT_H, c_black());
-	label(screen, time_text, UI_FONT_40, c_white(), 2, 66, 236, 54, LV_TEXT_ALIGN_CENTER);
+	label(screen, time_text, UI_FONT_40, c_white(), s_low_use_24h ? 2 : 8, 66, s_low_use_24h ? 236 : 190, 54,
+	      LV_TEXT_ALIGN_CENTER);
+	if (!s_low_use_24h) {
+		label(screen, period_text, UI_FONT_20, c_gray(), 192, 84, 40, 22, LV_TEXT_ALIGN_LEFT);
+	}
 	label(screen, date_text, UI_FONT_24, c_gray(), 2, 132, 236, 32, LV_TEXT_ALIGN_CENTER);
 }
 
