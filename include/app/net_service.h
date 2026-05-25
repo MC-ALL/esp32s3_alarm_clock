@@ -36,5 +36,7 @@ bool net_service_get_status(app_net_status_t *out_status);
 int net_service_request_connect_now(void);
 bool net_service_get_todo_snapshot(app_todo_snapshot_t *out_snapshot);
 int net_service_request_todo_sync_now(void);
+int net_service_request_todo_set_done(const char *todo_id, bool done);
+int net_service_request_todo_delete(const char *todo_id);
 
 #endif

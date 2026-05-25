@@ -30,7 +30,6 @@ static const char *TAG = "ui";
 #define UI_TILE_H 120
 #define UI_KEY_W 60
 #define UI_MAX_ALARMS 5U
-#define UI_MAX_LOCAL_DONE 8U
 #define UI_MAIN_PAGE_COUNT 6U
 #define UI_KEY_COUNT 4U
 
@@ -97,6 +96,8 @@ typedef enum {
 	UI_VIEW_ALARM_SETTINGS,
 	UI_VIEW_ALARM_ITEM,
 	UI_VIEW_TODO_SETTINGS,
+	UI_VIEW_TODO_ITEM,
+	UI_VIEW_TODO_DELETE_CONFIRM,
 	UI_VIEW_ENV_SETTINGS,
 	UI_VIEW_LOW_SETTINGS,
 } ui_view_t;
@@ -124,6 +125,7 @@ static uint8_t s_focus;
 static uint8_t s_alarm_selected;
 static uint8_t s_alarm_page_focus;
 static uint8_t s_todo_page_focus;
+static uint8_t s_todo_selected;
 static bool s_low_clock_auto_entered;
 static bool s_home_clock_only;
 static bool s_use_24h = true;
@@ -145,7 +147,6 @@ static uint16_t s_low_enter_absent_s = 60;
 static uint16_t s_low_exit_present_s = 3;
 static ui_alarm_item_t s_alarms[UI_MAX_ALARMS];
 static uint8_t s_alarm_count;
-static char s_done_ids[UI_MAX_LOCAL_DONE][24];
 static bool s_dirty = true;
 static int s_last_render_second = -1;
 static int64_t s_presence_absent_since_us;
@@ -294,36 +295,17 @@ static const ui_alarm_item_t *next_enabled_alarm(void)
 	return NULL;
 }
 
-static bool local_todo_done(const app_todo_item_t *item)
+static uint8_t todo_item_count(const app_todo_snapshot_t *snapshot)
 {
-	if (item->done) {
-		return true;
-	}
-
-	for (size_t i = 0; i < UI_MAX_LOCAL_DONE; i++) {
-		if (s_done_ids[i][0] != '\0' && strcmp(s_done_ids[i], item->id) == 0) {
-			return true;
-		}
-	}
-	return false;
+	return snapshot != NULL && snapshot->count < APP_TODO_MAX_ITEMS ? snapshot->count : APP_TODO_MAX_ITEMS;
 }
 
-static void mark_todo_done(const app_todo_item_t *item)
+static const app_todo_item_t *todo_item_at(const app_todo_snapshot_t *snapshot, uint8_t index)
 {
-	if (item == NULL || item->id[0] == '\0') {
-		return;
+	if (snapshot == NULL || index >= todo_item_count(snapshot)) {
+		return NULL;
 	}
-
-	for (size_t i = 0; i < UI_MAX_LOCAL_DONE; i++) {
-		if (s_done_ids[i][0] == '\0' || strcmp(s_done_ids[i], item->id) == 0) {
-			snprintf(s_done_ids[i], sizeof(s_done_ids[i]), "%s", item->id);
-			ESP_LOGI(TAG, "todo marked done locally id=%s", item->id);
-			return;
-		}
-	}
-
-	snprintf(s_done_ids[0], sizeof(s_done_ids[0]), "%s", item->id);
-	ESP_LOGI(TAG, "todo marked done locally id=%s overwrite=1", item->id);
+	return &snapshot->items[index];
 }
 
 static uint8_t todo_count(const app_todo_snapshot_t *snapshot)
@@ -334,7 +316,7 @@ static uint8_t todo_count(const app_todo_snapshot_t *snapshot)
 	}
 
 	for (uint8_t i = 0; i < snapshot->count && i < APP_TODO_MAX_ITEMS; i++) {
-		if (!local_todo_done(&snapshot->items[i])) {
+		if (!snapshot->items[i].done) {
 			count++;
 		}
 	}
@@ -517,21 +499,30 @@ static void render_todo_page(lv_obj_t *screen)
 		lv_color_t bg = selected ? c_white() : lv_color_hex(0x3f1f86);
 		lv_color_t fg = selected ? c_black() : c_white();
 		box(area, 4, 4 + shown * 62, 228, 52, bg);
-		label_wrap(area, todo.items[i].text[0] != '\0' ? todo.items[i].text : "(empty)", UI_FONT_24, fg,
-			   8, 9 + shown * 62, 220, 42, LV_TEXT_ALIGN_LEFT);
+		char text[112];
+		snprintf(text, sizeof(text), "%s %s", todo.items[i].done ? LV_SYMBOL_OK : LV_SYMBOL_MINUS,
+			 todo.items[i].text[0] != '\0' ? todo.items[i].text : "(empty)");
+		label_wrap(area, text, UI_FONT_24, fg, 8, 9 + shown * 62, 220, 42, LV_TEXT_ALIGN_LEFT);
 		shown++;
 	}
 
-	if (shown == 0U) {
-		const char *text = todo.sync_in_progress ? "SYNCING" : "NO TODO";
-		label(area, text, UI_FONT_40, c_white(), 4, 44, 232, 50, LV_TEXT_ALIGN_CENTER);
+	{
+		const bool selected = shown == s_todo_page_focus;
+		lv_color_t bg = selected ? c_white() : lv_color_hex(0x3f1f86);
+		lv_color_t fg = selected ? c_black() : c_white();
+		box(area, 4, 4 + shown * 62, 228, 52, bg);
+		label(area, LV_SYMBOL_SETTINGS " SETTINGS", UI_FONT_24, fg, 8, 15 + shown * 62, 220, 30,
+		      LV_TEXT_ALIGN_LEFT);
+		shown++;
 	}
-	if (shown > 0U) {
-		if (s_todo_page_focus >= shown) {
-			s_todo_page_focus = 0;
-		}
-		lv_obj_scroll_to_y(area, s_todo_page_focus * 62, LV_ANIM_OFF);
+
+	if (shown == 1U && todo_item_count(&todo) == 0U && todo.sync_in_progress) {
+		label(area, "SYNCING", UI_FONT_40, c_white(), 4, 70, 232, 50, LV_TEXT_ALIGN_CENTER);
 	}
+	if (s_todo_page_focus >= shown) {
+		s_todo_page_focus = 0;
+	}
+	lv_obj_scroll_to_y(area, s_todo_page_focus * 62, LV_ANIM_OFF);
 }
 
 static void render_env_page(lv_obj_t *screen)
@@ -697,8 +688,6 @@ static void render_alarm_item(lv_obj_t *screen)
 
 static void render_todo_settings(lv_obj_t *screen)
 {
-	app_todo_snapshot_t todo = { 0 };
-	(void)net_service_get_todo_snapshot(&todo);
 	lv_obj_t *area = render_settings_area(screen, "TODO SET", c_purple());
 	render_row(area, 0, "SYNC NOW", s_focus == 0U);
 	char refresh[32];
@@ -706,14 +695,41 @@ static void render_todo_settings(lv_obj_t *screen)
 	render_row(area, 1, refresh, s_focus == 1U);
 	render_row(area, 2, s_todo_voice_on ? "VOICE ON" : "VOICE OFF", s_focus == 2U);
 	render_row(area, 3, "TEST VOICE", s_focus == 3U);
+	scroll_focus_into_view(area, s_focus);
+}
 
-	const uint8_t todo_items = todo.count < APP_TODO_MAX_ITEMS ? todo.count : APP_TODO_MAX_ITEMS;
-	for (uint8_t i = 0; i < todo_items; i++) {
-		char text[48];
-		snprintf(text, sizeof(text), "%s %.30s", local_todo_done(&todo.items[i]) ? "OK" : "DO",
-			 todo.items[i].text);
-		render_row(area, (uint8_t)(4U + i), text, s_focus == (uint8_t)(4U + i));
+static void render_todo_item(lv_obj_t *screen)
+{
+	app_todo_snapshot_t todo = { 0 };
+	(void)net_service_get_todo_snapshot(&todo);
+	const app_todo_item_t *item = todo_item_at(&todo, s_todo_selected);
+	lv_obj_t *area = render_settings_area(screen, "TODO ITEM", c_purple());
+
+	if (item == NULL) {
+		render_row(area, 0, "ITEM MISSING", true);
+		return;
 	}
+
+	char title[64];
+	snprintf(title, sizeof(title), "%.40s", item->text[0] != '\0' ? item->text : "(empty)");
+	label_wrap(area, title, UI_FONT_20, c_white(), 8, 4, 224, 38, LV_TEXT_ALIGN_LEFT);
+	render_row(area, 1, item->done ? "UNDO DONE" : "MARK DONE", s_focus == 0U);
+	render_row(area, 2, "DELETE", s_focus == 1U);
+	scroll_focus_into_view(area, s_focus);
+}
+
+static void render_todo_delete_confirm(lv_obj_t *screen)
+{
+	app_todo_snapshot_t todo = { 0 };
+	(void)net_service_get_todo_snapshot(&todo);
+	const app_todo_item_t *item = todo_item_at(&todo, s_todo_selected);
+	lv_obj_t *area = render_settings_area(screen, "DELETE?", c_red());
+	char title[64];
+
+	snprintf(title, sizeof(title), "%.40s", item != NULL && item->text[0] != '\0' ? item->text : "TODO ITEM");
+	label_wrap(area, title, UI_FONT_20, c_white(), 8, 4, 224, 38, LV_TEXT_ALIGN_LEFT);
+	render_row(area, 1, "CONFIRM DELETE", s_focus == 0U);
+	render_row(area, 2, "CANCEL", s_focus == 1U);
 	scroll_focus_into_view(area, s_focus);
 }
 
@@ -758,6 +774,11 @@ static void render_low_settings(lv_obj_t *screen)
 static const char *ok_icon_for_view(void)
 {
 	if (s_view == UI_VIEW_MAIN) {
+		if (s_main_page == UI_PAGE_TODO) {
+			app_todo_snapshot_t todo = { 0 };
+			(void)net_service_get_todo_snapshot(&todo);
+			return s_todo_page_focus < todo_item_count(&todo) ? LV_SYMBOL_OK : LV_SYMBOL_SETTINGS;
+		}
 		return s_main_page == UI_PAGE_WIFI ? LV_SYMBOL_CLOSE : LV_SYMBOL_SETTINGS;
 	}
 	return LV_SYMBOL_OK;
@@ -823,6 +844,10 @@ static void render_ui(void)
 		render_alarm_item(screen);
 	} else if (s_view == UI_VIEW_TODO_SETTINGS) {
 		render_todo_settings(screen);
+	} else if (s_view == UI_VIEW_TODO_ITEM) {
+		render_todo_item(screen);
+	} else if (s_view == UI_VIEW_TODO_DELETE_CONFIRM) {
+		render_todo_delete_confirm(screen);
 	} else if (s_view == UI_VIEW_ENV_SETTINGS) {
 		render_env_settings(screen);
 	} else if (s_view == UI_VIEW_LOW_SETTINGS) {
@@ -834,7 +859,6 @@ static void render_ui(void)
 
 static uint8_t focus_count_for_view(void)
 {
-	app_todo_snapshot_t todo = { 0 };
 	switch (s_view) {
 	case UI_VIEW_HOME_SETTINGS:
 		return 3;
@@ -843,8 +867,11 @@ static uint8_t focus_count_for_view(void)
 	case UI_VIEW_ALARM_ITEM:
 		return 4;
 	case UI_VIEW_TODO_SETTINGS:
-		(void)net_service_get_todo_snapshot(&todo);
-		return (uint8_t)(4U + (todo.count < APP_TODO_MAX_ITEMS ? todo.count : APP_TODO_MAX_ITEMS));
+		return 4;
+	case UI_VIEW_TODO_ITEM:
+		return 2;
+	case UI_VIEW_TODO_DELETE_CONFIRM:
+		return 2;
 	case UI_VIEW_ENV_SETTINGS:
 		return 10;
 	case UI_VIEW_LOW_SETTINGS:
@@ -1058,8 +1085,6 @@ static void process_ok_in_settings(void)
 	}
 
 	if (s_view == UI_VIEW_TODO_SETTINGS) {
-		app_todo_snapshot_t todo = { 0 };
-		(void)net_service_get_todo_snapshot(&todo);
 		if (s_focus == 0U) {
 			int ret = net_service_request_todo_sync_now();
 			ESP_LOGI(TAG, "todo sync requested ret=%d", ret);
@@ -1079,11 +1104,43 @@ static void process_ok_in_settings(void)
 			save_settings();
 		} else if (s_focus == 3U) {
 			play_todo_voice_test();
+		}
+		return;
+	}
+
+	if (s_view == UI_VIEW_TODO_ITEM) {
+		app_todo_snapshot_t todo = { 0 };
+		(void)net_service_get_todo_snapshot(&todo);
+		const app_todo_item_t *item = todo_item_at(&todo, s_todo_selected);
+		if (item == NULL) {
+			s_view = UI_VIEW_MAIN;
+			return;
+		}
+
+		if (s_focus == 0U) {
+			int ret = net_service_request_todo_set_done(item->id, !item->done);
+			ESP_LOGI(TAG, "todo toggle requested id=%s done=%d ret=%d", item->id, item->done ? 0 : 1, ret);
+			s_view = UI_VIEW_MAIN;
+			s_focus = 0;
 		} else {
-			uint8_t index = (uint8_t)(s_focus - 4U);
-			if (index < todo.count && index < APP_TODO_MAX_ITEMS) {
-				mark_todo_done(&todo.items[index]);
-			}
+			s_view = UI_VIEW_TODO_DELETE_CONFIRM;
+			s_focus = 0;
+		}
+		return;
+	}
+
+	if (s_view == UI_VIEW_TODO_DELETE_CONFIRM) {
+		app_todo_snapshot_t todo = { 0 };
+		(void)net_service_get_todo_snapshot(&todo);
+		const app_todo_item_t *item = todo_item_at(&todo, s_todo_selected);
+		if (s_focus == 0U && item != NULL) {
+			int ret = net_service_request_todo_delete(item->id);
+			ESP_LOGI(TAG, "todo delete requested id=%s ret=%d", item->id, ret);
+			s_view = UI_VIEW_MAIN;
+			s_focus = 0;
+		} else {
+			s_view = UI_VIEW_TODO_ITEM;
+			s_focus = 0;
 		}
 		return;
 	}
@@ -1241,7 +1298,7 @@ static void process_key(size_t key_index)
 			} else if (s_main_page == UI_PAGE_TODO) {
 				app_todo_snapshot_t todo = { 0 };
 				(void)net_service_get_todo_snapshot(&todo);
-				const uint8_t count = todo.count < APP_TODO_MAX_ITEMS ? todo.count : APP_TODO_MAX_ITEMS;
+				const uint8_t count = (uint8_t)(todo_item_count(&todo) + 1U);
 				if (count > 0U) {
 					s_todo_page_focus = (uint8_t)((s_todo_page_focus + 1U) % count);
 				}
@@ -1256,7 +1313,21 @@ static void process_key(size_t key_index)
 			s_main_page = (ui_main_page_t)((s_main_page + 1U) % UI_MAIN_PAGE_COUNT);
 			s_low_clock_auto_entered = false;
 		} else {
-			enter_settings_for_page();
+			if (s_main_page == UI_PAGE_TODO) {
+				app_todo_snapshot_t todo = { 0 };
+				(void)net_service_get_todo_snapshot(&todo);
+				const uint8_t item_count = todo_item_count(&todo);
+				if (s_todo_page_focus < item_count) {
+					s_todo_selected = s_todo_page_focus;
+					s_view = UI_VIEW_TODO_ITEM;
+					s_focus = 0;
+				} else {
+					s_view = UI_VIEW_TODO_SETTINGS;
+					s_focus = 0;
+				}
+			} else {
+				enter_settings_for_page();
+			}
 		}
 		s_dirty = true;
 		return;
@@ -1265,6 +1336,10 @@ static void process_key(size_t key_index)
 	if (key_index == UI_KEY_HOME_BACK) {
 		if (s_view == UI_VIEW_ALARM_ITEM) {
 			s_view = UI_VIEW_ALARM_SETTINGS;
+		} else if (s_view == UI_VIEW_TODO_DELETE_CONFIRM) {
+			s_view = UI_VIEW_TODO_ITEM;
+		} else if (s_view == UI_VIEW_TODO_ITEM || s_view == UI_VIEW_TODO_SETTINGS) {
+			s_view = UI_VIEW_MAIN;
 		} else {
 			s_view = UI_VIEW_MAIN;
 		}

@@ -18,6 +18,7 @@
 #include <freertos/task.h>
 #include <lwip/apps/sntp.h>
 #include <lwip/inet.h>
+#include <nvs.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -43,8 +44,15 @@ static int64_t s_last_todo_auto_sync_us;
 static QueueHandle_t s_todo_request_queue;
 static TaskHandle_t s_todo_task;
 
+#define APP_TODO_CACHE_NAMESPACE "todo_cache"
+#define APP_TODO_CACHE_BLOB_KEY "snapshot_v1"
+#define APP_TODO_CACHE_MAGIC 0x544F444FU
+#define APP_TODO_CACHE_VERSION 1U
+
 typedef enum {
 	NET_TODO_REQUEST_SYNC = 1,
+	NET_TODO_REQUEST_SET_DONE,
+	NET_TODO_REQUEST_DELETE,
 } net_todo_request_t;
 
 typedef struct {
@@ -52,6 +60,19 @@ typedef struct {
 	size_t len;
 	size_t cap;
 } net_http_buffer_t;
+
+typedef struct {
+	net_todo_request_t type;
+	char todo_id[24];
+	bool done;
+} net_todo_request_msg_t;
+
+typedef struct {
+	uint32_t magic;
+	uint16_t version;
+	uint16_t size;
+	app_todo_snapshot_t snapshot;
+} net_todo_cache_blob_t;
 
 static void net_service_configure_timezone(void)
 {
@@ -106,6 +127,88 @@ static void net_service_start_sntp_sync_timer(void)
 static void net_service_reset_todo_snapshot(void)
 {
 	s_todo_snapshot = (app_todo_snapshot_t){ 0 };
+}
+
+static void net_service_cache_sanitize_snapshot(app_todo_snapshot_t *snapshot)
+{
+	if (snapshot == NULL) {
+		return;
+	}
+
+	if (snapshot->count > APP_TODO_MAX_ITEMS) {
+		snapshot->count = APP_TODO_MAX_ITEMS;
+	}
+	snapshot->sync_in_progress = false;
+	if (!snapshot->sync_ok) {
+		snapshot->last_error[0] = '\0';
+	}
+}
+
+static void net_service_cache_save(void)
+{
+	net_todo_cache_blob_t blob = {
+		.magic = APP_TODO_CACHE_MAGIC,
+		.version = APP_TODO_CACHE_VERSION,
+		.size = sizeof(blob.snapshot),
+		.snapshot = s_todo_snapshot,
+	};
+	net_service_cache_sanitize_snapshot(&blob.snapshot);
+
+	nvs_handle_t handle = 0;
+	esp_err_t err = nvs_open(APP_TODO_CACHE_NAMESPACE, NVS_READWRITE, &handle);
+	if (err != ESP_OK) {
+		ESP_LOGW(TAG, "todo cache open write failed: %s", esp_err_to_name(err));
+		return;
+	}
+
+	err = nvs_set_blob(handle, APP_TODO_CACHE_BLOB_KEY, &blob, sizeof(blob));
+	if (err == ESP_OK) {
+		err = nvs_commit(handle);
+	}
+	nvs_close(handle);
+	if (err != ESP_OK) {
+		ESP_LOGW(TAG, "todo cache save failed: %s", esp_err_to_name(err));
+		return;
+	}
+
+	ESP_LOGI(TAG, "todo cache saved count=%u sync_ok=%d", (unsigned)blob.snapshot.count,
+		 blob.snapshot.sync_ok ? 1 : 0);
+}
+
+static bool net_service_cache_load(void)
+{
+	nvs_handle_t handle = 0;
+	esp_err_t err = nvs_open(APP_TODO_CACHE_NAMESPACE, NVS_READONLY, &handle);
+	if (err == ESP_ERR_NVS_NOT_FOUND) {
+		ESP_LOGI(TAG, "todo cache missing");
+		return false;
+	}
+	if (err != ESP_OK) {
+		ESP_LOGW(TAG, "todo cache open read failed: %s", esp_err_to_name(err));
+		return false;
+	}
+
+	net_todo_cache_blob_t blob = { 0 };
+	size_t size = sizeof(blob);
+	err = nvs_get_blob(handle, APP_TODO_CACHE_BLOB_KEY, &blob, &size);
+	nvs_close(handle);
+	if (err != ESP_OK) {
+		ESP_LOGI(TAG, "todo cache blob missing: %s", esp_err_to_name(err));
+		return false;
+	}
+	if (size != sizeof(blob) || blob.magic != APP_TODO_CACHE_MAGIC || blob.version != APP_TODO_CACHE_VERSION ||
+	    blob.size != sizeof(blob.snapshot)) {
+		ESP_LOGW(TAG, "todo cache incompatible size=%u magic=0x%08x version=%u", (unsigned)size,
+			 (unsigned)blob.magic, (unsigned)blob.version);
+		return false;
+	}
+
+	net_service_cache_sanitize_snapshot(&blob.snapshot);
+	s_todo_snapshot = blob.snapshot;
+	ESP_LOGI(TAG, "todo cache loaded count=%u sync_ok=%d last_sync=%s", (unsigned)s_todo_snapshot.count,
+		 s_todo_snapshot.sync_ok ? 1 : 0,
+		 s_todo_snapshot.last_sync_at[0] != '\0' ? s_todo_snapshot.last_sync_at : "--");
+	return true;
 }
 
 static void net_service_stop_reconnect_timer(void)
@@ -297,6 +400,42 @@ static bool net_parse_todo_items(const char *json, app_todo_snapshot_t *snapshot
 	return true;
 }
 
+static int net_find_todo_index_by_id(const char *todo_id)
+{
+	if (todo_id == NULL || todo_id[0] == '\0') {
+		return -1;
+	}
+
+	for (uint8_t i = 0; i < s_todo_snapshot.count && i < APP_TODO_MAX_ITEMS; i++) {
+		if (strcmp(s_todo_snapshot.items[i].id, todo_id) == 0) {
+			return (int)i;
+		}
+	}
+	return -1;
+}
+
+static void net_touch_todo_last_sync(void)
+{
+	time_t now = 0;
+	struct tm timeinfo = { 0 };
+
+	time(&now);
+	localtime_r(&now, &timeinfo);
+	(void)snprintf(s_todo_snapshot.last_sync_at, sizeof(s_todo_snapshot.last_sync_at), "%02d:%02d:%02d",
+		       timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+}
+
+static esp_http_client_handle_t net_http_client_open(const char *url, net_http_buffer_t *buffer)
+{
+	esp_http_client_config_t cfg = {
+		.url = url,
+		.timeout_ms = 5000,
+		.event_handler = net_http_event_handler,
+		.user_data = buffer,
+	};
+	return esp_http_client_init(&cfg);
+}
+
 static void net_service_sync_todos_once(void)
 {
 	if (!s_status.wifi_connected || !s_status.ip_ready) {
@@ -335,13 +474,7 @@ static void net_service_sync_todos_once(void)
 	ESP_LOGI(TAG, "todo sync start url=%s stack_hwm=%u heap=%u", url,
 		 (unsigned)uxTaskGetStackHighWaterMark(NULL), (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
 
-	esp_http_client_config_t cfg = {
-		.url = url,
-		.timeout_ms = 5000,
-		.event_handler = net_http_event_handler,
-		.user_data = &buffer,
-	};
-	esp_http_client_handle_t client = esp_http_client_init(&cfg);
+	esp_http_client_handle_t client = net_http_client_open(url, &buffer);
 	if (client == NULL) {
 		strlcpy(s_todo_snapshot.last_error, "client init failed", sizeof(s_todo_snapshot.last_error));
 		s_todo_snapshot.sync_in_progress = false;
@@ -364,6 +497,7 @@ static void net_service_sync_todos_once(void)
 		(void)snprintf(next_snapshot->last_sync_at, sizeof(next_snapshot->last_sync_at), "%02d:%02d:%02d",
 			       timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
 		s_todo_snapshot = *next_snapshot;
+		net_service_cache_save();
 		ESP_LOGI(TAG, "todo sync ok count=%u bytes=%u stack_hwm=%u heap=%u",
 			 (unsigned)s_todo_snapshot.count, (unsigned)buffer.len,
 			 (unsigned)uxTaskGetStackHighWaterMark(NULL), (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
@@ -384,6 +518,118 @@ static void net_service_sync_todos_once(void)
 	s_todo_sync_in_progress = false;
 }
 
+static int net_service_update_todo_done_once(const char *todo_id, bool done)
+{
+	if (todo_id == NULL || todo_id[0] == '\0') {
+		return -1;
+	}
+	if (!s_status.wifi_connected || !s_status.ip_ready) {
+		strlcpy(s_todo_snapshot.last_error, "wifi offline", sizeof(s_todo_snapshot.last_error));
+		return -1;
+	}
+
+	char url[192];
+	char body[32];
+	char response[256] = { 0 };
+	net_http_buffer_t buffer = {
+		.buffer = response,
+		.len = 0,
+		.cap = sizeof(response),
+	};
+	(void)snprintf(url, sizeof(url), "http://%s:%d%s/%s", APP_TODO_WEB_HOST, APP_TODO_WEB_PORT, APP_TODO_WEB_PATH,
+		       todo_id);
+	(void)snprintf(body, sizeof(body), "{\"done\":%s}", done ? "true" : "false");
+	ESP_LOGI(TAG, "todo set done start id=%s done=%d", todo_id, done ? 1 : 0);
+
+	esp_http_client_handle_t client = net_http_client_open(url, &buffer);
+	if (client == NULL) {
+		strlcpy(s_todo_snapshot.last_error, "client init failed", sizeof(s_todo_snapshot.last_error));
+		return -1;
+	}
+
+	esp_http_client_set_method(client, HTTP_METHOD_PUT);
+	esp_http_client_set_header(client, "Content-Type", "application/json");
+	esp_http_client_set_post_field(client, body, (int)strlen(body));
+
+	esp_err_t err = esp_http_client_perform(client);
+	const int status = esp_http_client_get_status_code(client);
+	esp_http_client_cleanup(client);
+	if (err != ESP_OK || status != 200) {
+		(void)snprintf(s_todo_snapshot.last_error, sizeof(s_todo_snapshot.last_error), "todo put err=%d status=%d",
+			       (int)err, status);
+		ESP_LOGW(TAG, "todo set done failed id=%s done=%d err=%d status=%d", todo_id, done ? 1 : 0, (int)err,
+			 status);
+		return -1;
+	}
+
+	const int index = net_find_todo_index_by_id(todo_id);
+	if (index >= 0) {
+		s_todo_snapshot.items[index].done = done;
+	}
+	s_todo_snapshot.sync_ok = true;
+	s_todo_snapshot.last_error[0] = '\0';
+	net_touch_todo_last_sync();
+	net_service_cache_save();
+	ESP_LOGI(TAG, "todo set done ok id=%s done=%d", todo_id, done ? 1 : 0);
+	return 0;
+}
+
+static int net_service_delete_todo_once(const char *todo_id)
+{
+	if (todo_id == NULL || todo_id[0] == '\0') {
+		return -1;
+	}
+	if (!s_status.wifi_connected || !s_status.ip_ready) {
+		strlcpy(s_todo_snapshot.last_error, "wifi offline", sizeof(s_todo_snapshot.last_error));
+		return -1;
+	}
+
+	char url[192];
+	char response[64] = { 0 };
+	net_http_buffer_t buffer = {
+		.buffer = response,
+		.len = 0,
+		.cap = sizeof(response),
+	};
+	(void)snprintf(url, sizeof(url), "http://%s:%d%s/%s", APP_TODO_WEB_HOST, APP_TODO_WEB_PORT, APP_TODO_WEB_PATH,
+		       todo_id);
+	ESP_LOGI(TAG, "todo delete start id=%s", todo_id);
+
+	esp_http_client_handle_t client = net_http_client_open(url, &buffer);
+	if (client == NULL) {
+		strlcpy(s_todo_snapshot.last_error, "client init failed", sizeof(s_todo_snapshot.last_error));
+		return -1;
+	}
+
+	esp_http_client_set_method(client, HTTP_METHOD_DELETE);
+	esp_err_t err = esp_http_client_perform(client);
+	const int status = esp_http_client_get_status_code(client);
+	esp_http_client_cleanup(client);
+	if (err != ESP_OK || status != 204) {
+		(void)snprintf(s_todo_snapshot.last_error, sizeof(s_todo_snapshot.last_error), "todo del err=%d status=%d",
+			       (int)err, status);
+		ESP_LOGW(TAG, "todo delete failed id=%s err=%d status=%d", todo_id, (int)err, status);
+		return -1;
+	}
+
+	const int index = net_find_todo_index_by_id(todo_id);
+	if (index >= 0) {
+		for (uint8_t i = (uint8_t)index; i + 1U < s_todo_snapshot.count; i++) {
+			s_todo_snapshot.items[i] = s_todo_snapshot.items[i + 1U];
+		}
+		if (s_todo_snapshot.count > 0U) {
+			s_todo_snapshot.count--;
+			s_todo_snapshot.items[s_todo_snapshot.count] = (app_todo_item_t){ 0 };
+		}
+	}
+	s_todo_snapshot.sync_ok = true;
+	s_todo_snapshot.last_error[0] = '\0';
+	net_touch_todo_last_sync();
+	net_service_cache_save();
+	ESP_LOGI(TAG, "todo delete ok id=%s", todo_id);
+	return 0;
+}
+
 static int net_service_queue_todo_sync(void)
 {
 	if (!s_status.wifi_connected || !s_status.ip_ready) {
@@ -402,7 +648,9 @@ static int net_service_queue_todo_sync(void)
 		return 0;
 	}
 
-	const net_todo_request_t request = NET_TODO_REQUEST_SYNC;
+	const net_todo_request_msg_t request = {
+		.type = NET_TODO_REQUEST_SYNC,
+	};
 	s_todo_snapshot.sync_in_progress = true;
 	if (xQueueSend(s_todo_request_queue, &request, 0) != pdTRUE) {
 		s_todo_snapshot.sync_in_progress = false;
@@ -418,12 +666,16 @@ static void net_service_todo_task(void *arg)
 	(void)arg;
 
 	for (;;) {
-		net_todo_request_t request = 0;
+		net_todo_request_msg_t request = { 0 };
 		if (xQueueReceive(s_todo_request_queue, &request, portMAX_DELAY) != pdTRUE) {
 			continue;
 		}
-		if (request == NET_TODO_REQUEST_SYNC) {
+		if (request.type == NET_TODO_REQUEST_SYNC) {
 			net_service_sync_todos_once();
+		} else if (request.type == NET_TODO_REQUEST_SET_DONE) {
+			(void)net_service_update_todo_done_once(request.todo_id, request.done);
+		} else if (request.type == NET_TODO_REQUEST_DELETE) {
+			(void)net_service_delete_todo_once(request.todo_id);
 		}
 	}
 }
@@ -589,7 +841,7 @@ int net_service_init(void)
 		goto fail;
 	}
 
-	s_todo_request_queue = xQueueCreate(1, sizeof(net_todo_request_t));
+	s_todo_request_queue = xQueueCreate(4, sizeof(net_todo_request_msg_t));
 	if (s_todo_request_queue == NULL) {
 		ESP_LOGE(TAG, "failed to create todo request queue");
 		err = ESP_ERR_NO_MEM;
@@ -619,6 +871,7 @@ int net_service_init(void)
 
 	s_status = (app_net_status_t){ 0 };
 	net_service_reset_todo_snapshot();
+	(void)net_service_cache_load();
 	ESP_LOGI(TAG, "init");
 	return 0;
 
@@ -737,4 +990,39 @@ bool net_service_get_todo_snapshot(app_todo_snapshot_t *out_snapshot)
 int net_service_request_todo_sync_now(void)
 {
 	return net_service_queue_todo_sync();
+}
+
+int net_service_request_todo_set_done(const char *todo_id, bool done)
+{
+	if (todo_id == NULL || todo_id[0] == '\0' || s_todo_request_queue == NULL) {
+		return -1;
+	}
+
+	net_todo_request_msg_t request = {
+		.type = NET_TODO_REQUEST_SET_DONE,
+		.done = done,
+	};
+	strlcpy(request.todo_id, todo_id, sizeof(request.todo_id));
+	if (xQueueSend(s_todo_request_queue, &request, 0) != pdTRUE) {
+		strlcpy(s_todo_snapshot.last_error, "todo op queue full", sizeof(s_todo_snapshot.last_error));
+		return -1;
+	}
+	return 0;
+}
+
+int net_service_request_todo_delete(const char *todo_id)
+{
+	if (todo_id == NULL || todo_id[0] == '\0' || s_todo_request_queue == NULL) {
+		return -1;
+	}
+
+	net_todo_request_msg_t request = {
+		.type = NET_TODO_REQUEST_DELETE,
+	};
+	strlcpy(request.todo_id, todo_id, sizeof(request.todo_id));
+	if (xQueueSend(s_todo_request_queue, &request, 0) != pdTRUE) {
+		strlcpy(s_todo_snapshot.last_error, "todo op queue full", sizeof(s_todo_snapshot.last_error));
+		return -1;
+	}
+	return 0;
 }
