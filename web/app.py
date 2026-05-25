@@ -104,7 +104,7 @@ def list_updated_at(items: list[dict[str, Any]]) -> str:
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="index.html", context={})
 
 
 @app.get("/health")
