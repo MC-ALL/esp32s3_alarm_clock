@@ -2,372 +2,182 @@
 
 ## 1. 文档目标
 
-这份文档面向后续负责 `LVGL`、硬件驱动、传感器、网络、Todo 同步与语音模块的同学。
+本文档面向后续继续维护当前固件页面、动作接口和 Web 控制中心对接逻辑的同学。
+
 目标是明确：
-- 当前页面实际读取哪些状态
+- 当前页面真实有哪些页面和视图
+- 当前页面读取哪些运行状态
 - 当前页面会触发哪些动作
-- 各页面字段如何展示
-- 各模块交接时应以什么语义对齐
+- 当前哪些动作已经直接对接到 Web 控制中心
 
-本文档以**当前固件实际实现**为准。
+## 2. 当前 UI 页面集合
 
-当前页面集合：
-- 正常首页
-- 极简显示状态
-- 设置页
-- 闹钟页
-- 网络页
-- 关机确认页
-- 闹钟响铃页
+当前主页面为：
+- `HOME`
+- `ALARM`
+- `TODO`
+- `ENV`
+- `WIFI`
+- `LOW_CLOCK`
 
-补充说明：
-- 页面原型只用于表达 UI 状态机与信息结构
-- 运行在 `ESP32` 上时，按键扫描、Wi-Fi 状态、SNTP、环境采样、Todo 同步等都通过平台层接口接入
-- 更具体的嵌入式对接契约见 [esp32-ui-integration.md](/home/long/Smart_Clock/docs/api/esp32-ui-integration.md)
+当前附属视图为：
+- `HOME_SETTINGS`
+- `ALARM_SETTINGS`
+- `ALARM_ITEM`
+- `TODO_SETTINGS`
+- `TODO_ITEM`
+- `TODO_DELETE_CONFIRM`
+- `ENV_SETTINGS`
+- `LOW_SETTINGS`
 
----
+## 3. 页面状态与字段
 
-## 2. 页面与字段
+### 3.1 首页 `HOME`
 
-### 2.1 首页
+主要读取：
+- 当前时间
+- 当前日期
+- 最近一个已启用闹钟
+- 未完成 Todo 数量
+- 首页布局模式
 
-字段清单：
-- `clock.date`
-- `clock.weekday`
-- `clock.hhmmss`
-- `clock.synced`
-- `presence.detected`
-- `system.soundEnabled`
-- `system.audioEnabled`
-- `environment.temperature`
-- `environment.humidity`
-- `environment.lux`
-- `environment.noticeText`
-- `alarm.nearest`
-- `todo.items`
+### 3.2 闹钟页 `ALARM`
 
-展示规则：
-- 主视觉是完整时间
-- 未校时时显示 `UNSYNC`
-- 检测到人时显示 `DETECTED`
-- 首页底部显示 4 个主导航提示：`Set / Alm / Net / Pwr`
-- Todo 区显示前 3 条，超出显示 `+N`
-- 若无 Todo，显示 `No todo`
+主要读取：
+- 闹钟列表
+- 每条闹钟的时间
+- 是否重复
+- 是否启用
+- 是否启用语音
 
-### 2.2 极简显示状态
+当前页面支持：
+- 浏览闹钟列表
+- 新增闹钟
+- 删除最后一个闹钟
+- 编辑单条闹钟
 
-字段清单：
-- `clock.hhmm`
-- `presence.detected`
-- `presence.radarHealthy`
-- `presence.absenceDurationMs`
-- `presence.inactivityDurationMs`
+### 3.3 Todo 页 `TODO`
 
-展示规则：
-- 纯黑背景
-- 仅显示时间
-- 不显示环境、Todo、底栏按键提示
-- 检测到人后退出极简状态
-- 退出极简状态时可触发一次欢迎提示音
+主要读取：
+- 当前未完成 Todo 列表
+- Todo 同步状态
+- Todo 提示语音开关
 
-### 2.3 设置页
+当前页面支持：
+- 查看 Todo 列表
+- 手动同步
+- 标记完成
+- 删除 Todo
 
-字段清单：
-- `system.soundEnabled`
-- `system.audioEnabled`
-- `system.volume`
-- `environment.sampleInterval`
-- `alarm.repeatCount`
+当前语义：
+- 设备完成 Todo 后，Web 端归档该项
+- 设备删除 Todo 后，Web 端彻底删除该项
+- 设备本地后续不再保留已完成 Todo
 
-交互语义：
-- 浏览态：上下切换配置项
-- 编辑态：修改数值型配置项
-- `SOUND / AUDIO` 为直接切换型
-- `VOLUME / ENV SAMPLE / REPEAT` 为进入编辑型
+### 3.4 环境页 `ENV`
 
-### 2.4 闹钟页
+主要读取：
+- 温度
+- 湿度
+- 光照
+- 雷达状态
+- 环境提醒阈值
+- 环境语音开关
 
-字段清单：
-- `alarm.list[]`
-- `alarm.list[].hour`
-- `alarm.list[].minute`
-- `alarm.list[].second`
-- `alarm.list[].repeat`
-- `alarm.list[].enabled`
-- `alarm.currentView`
-- `alarm.selectedIndex`
+### 3.5 网络页 `WIFI`
 
-交互语义：
-- 列表态：选择 `+ NEW ALARM` 或已有闹钟
-- 动作态：对当前闹钟执行 `EDIT / TOGGLE / DELETE / BACK`
-- 编辑态：修改 `hour / minute / second / repeat / enabled`
-- 删除确认态：确认删除当前闹钟
+主要读取：
+- WiFi 是否连接
+- 当前 IP
+- 时间是否已同步
+- Todo 同步是否成功
 
 说明：
-- 当前实现中，闹钟数据主要是本地运行态模型
-- 当前字段中没有闹钟名称
+- 当前 `WIFI` 页面以状态展示为主
+- 当前设备状态页仍在 Web 端，不在设备端展示
 
-### 2.5 网络页
+### 3.6 低干扰时钟页 `LOW_CLOCK`
 
-字段清单：
-- `network.wifiStarted`
-- `network.wifiConnected`
-- `network.ipReady`
-- `network.ssid`
-- `network.ip`
-- `network.timeSynced`
-- `network.targetAp`
-- `todo.syncOk`
-- `todo.lastSyncAt`
+主要读取：
+- 当前时间
+- 当前日期
+- 12/24 小时制
+- 人体在位状态
+- 进入和退出阈值
 
-交互语义：
-- 页面分为 4 个模块：`WIFI STATUS`、`ACTION`、`MY NET`、`SYNC STATUS`
-- 先在模块间切换，再进入 `ACTION` 模块内部选择
-- `MY NET` 只负责查看目标热点连接状态
-- `SYNC STATUS` 只负责查看时间同步与 Todo 同步结果
+## 4. 关键动作接口
 
-### 2.6 关机确认页
+### 4.1 闹钟相关
 
-字段清单：
-- `system.powerConfirmVisible`
+当前本地行为：
+- 新增闹钟
+- 删除最后一个闹钟
+- 修改单条闹钟时间与属性
+- 启停闹钟
 
-展示规则：
-- 中间显示确认文案
-- 当前实现中 `K4` 只更新确认文本，不执行真实硬件关机
+当前新增对接：
+- 本地保存成功后，会立即请求 Web 更新闹钟真源
 
-### 2.7 闹钟响铃页
+### 4.2 语音设置相关
 
-字段清单：
-- `alarm.active.hour`
-- `alarm.active.minute`
-- `alarm.active.second`
-- `alarm.ringing`
-- `alarm.repeatRemaining`
+当前本地行为：
+- Todo 提示语音开关
+- 闹钟语音开关
+- 环境语音开关
+- 环境提醒开关
+- 整点提示开关
 
-展示规则：
-- 黑底
-- 中央显示当前响铃闹钟时间
-- 下方显示 `PRESS ANY KEY TO STOP`
-- 4 个按键全部等价为 `Stop`
+当前新增对接：
+- 本地保存成功后，会立即请求 Web 更新语音设置真源
 
----
+### 4.3 Todo 相关
 
-## 3. 页面状态读取接口
+当前真实网络动作：
+- `net_service_request_todo_sync_now()`
+- `net_service_request_todo_set_done()`
+- `net_service_request_todo_delete()`
 
-建议由统一状态聚合层向 UI 提供只读状态。
+当前语义：
+- Todo 完成会立即请求 Web 归档
+- Todo 删除会立即请求 Web 删除
 
-示例：
+### 4.4 状态与事件相关
 
-```json
-{
-  "clock": {
-    "date": "2026-05-20",
-    "weekday": "TUE",
-    "hhmmss": "19:30:08",
-    "synced": true
-  },
-  "presence": {
-    "detected": true,
-    "radarHealthy": true,
-    "absenceDurationMs": 0,
-    "inactivityDurationMs": 4000
-  },
-  "system": {
-    "soundEnabled": true,
-    "audioEnabled": true,
-    "volume": 6,
-    "powerConfirmVisible": false,
-    "currentViewMode": "home"
-  },
-  "environment": {
-    "temperature": 26,
-    "humidity": 58,
-    "lux": 320,
-    "sampleInterval": 1,
-    "noticeText": "LIGHT LOW",
-    "samplingHealthy": true
-  },
-  "alarm": {
-    "repeatCount": 2,
-    "nearest": {
-      "hour": 7,
-      "minute": 30,
-      "second": 0,
-      "repeat": true,
-      "enabled": true
-    },
-    "list": [
-      { "hour": 7, "minute": 30, "second": 0, "repeat": true, "enabled": true }
-    ],
-    "ringing": false
-  },
-  "todo": {
-    "items": [
-      { "id": "todo-1", "text": "10:00 前确认会议纪要并发给项目组", "done": false }
-    ],
-    "syncOk": true,
-    "lastSyncAt": "19:25:10"
-  },
-  "network": {
-    "wifiStarted": true,
-    "wifiConnected": true,
-    "ipReady": true,
-    "ssid": "lbxx",
-    "ip": "192.168.220.226",
-    "timeSynced": true,
-    "targetAp": "lbxx"
-  }
-}
-```
+当前真实对接还包括：
+- 周期拉取 `GET /api/device/config`
+- 周期上报 `POST /api/device/status`
+- 事件上报 `POST /api/device/events`
 
----
+设备当前会上报的关键事件包括：
+- `alarm_triggered`
+- `env_alert_triggered`
+- `rest_reminder_triggered`
+- `todo_sync_up_played`
+- `todo_completed`
+- `todo_deleted`
+- `welcome_played`
 
-## 4. 动作接口
+## 5. 当前按键语义
 
-### 4.1 页面导航动作
+### 5.1 主页面状态
 
-```ts
-openSettings(): void
-openAlarms(): void
-openNetwork(): void
-openPowerConfirm(): void
-backHome(): void
-```
+在主页面状态下：
+- 第 1 键：返回首页，或在列表页中向下移动焦点
+- 第 2 键：切换到前一个主页面
+- 第 3 键：切换到后一个主页面
+- 第 4 键：进入当前页面对应设置或操作视图
 
-说明：
-- 极简模式进入 / 退出不建议作为外部动作暴露
-- 极简模式应由 presence 与 inactivity 自动驱动
-- 闹钟响铃页由闹钟触发逻辑自动进入
+### 5.2 设置或编辑视图
 
-### 4.2 设置动作
-
-```ts
-setSoundEnabled(value: boolean): Result
-setAudioEnabled(value: boolean): Result
-setVolume(level: number): Result
-setEnvSampleInterval(seconds: number): Result
-setAlarmRepeatCount(count: number): Result
-```
-
-### 4.3 闹钟动作
-
-```ts
-createAlarm(payload: AlarmPayload): Result
-updateAlarm(index: number, payload: AlarmPayload): Result
-deleteAlarm(index: number): Result
-toggleAlarm(index: number, enabled: boolean): Result
-stopActiveAlarm(): Result
-```
-
-```ts
-interface AlarmPayload {
-  hour: number
-  minute: number
-  second: number
-  repeat: boolean
-  enabled: boolean
-}
-```
-
-### 4.4 网络动作
-
-```ts
-connectNow(): Result
-syncTodoNow(): Result
-```
-
-说明：
-- 当前固定热点模式下，不暴露 `scanWifi / connectWifi(ssid, password) / disconnectWifi`
-- 当前网络页只有手动重连和手动同步 Todo 两个动作入口
-
-### 4.5 结果结构建议
-
-```ts
-interface Result {
-  ok: boolean
-  code?: string
-  message?: string
-}
-```
-
-建议失败时始终返回可读 `message`，用于网络页或日志输出。
-
----
-
-## 5. 按键映射
-
-### 5.1 首页
-- `K1`：进入设置页
-- `K2`：进入闹钟页
-- `K3`：进入网络页
-- `K4`：进入关机确认页
-
-### 5.2 设置页
-浏览态：
-- `K1`：上移
-- `K2`：下移
-- `K3`：修改 / 进入编辑
-- `K4`：返回首页
-
-编辑态：
-- `K1`：增加数值
-- `K2`：减少数值
-- `K3`：保存
-- `K4`：取消
-
-### 5.3 闹钟页
-列表态：
-- `K1`：上移
-- `K2`：下移
-- `K3`：选择当前项
-- `K4`：返回首页
-
-动作态：
-- `K1`：上移
-- `K2`：下移
-- `K3`：执行当前动作
-- `K4`：返回列表态
-
-删除确认态：
-- `K1`：取消
-- `K4`：删除
-
-编辑态：
-- `K1`：减小 / 切换当前字段
-- `K2`：增大 / 切换当前字段
-- `K3`：下一字段 / 保存
-- `K4`：取消
-
-### 5.4 网络页
-模块浏览态：
-- `K1`：切上一个模块
-- `K2`：切下一个模块
-- `K3`：选择
-- `K4`：返回首页
-
-动作选择态：
-- `K1`：上移
-- `K2`：下移
-- `K3`：执行动作
-- `K4`：返回模块浏览态
-
-### 5.5 关机确认页
-- `K1`：返回首页
-- `K4`：确认
-
-### 5.6 闹钟响铃页
-- `K1`：停止
-- `K2`：停止
-- `K3`：停止
-- `K4`：停止
-
----
+在设置或编辑视图下：
+- 第 1 键：返回上一级
+- 第 2 键：上移焦点
+- 第 3 键：下移焦点
+- 第 4 键：执行当前项动作
 
 ## 6. 当前实现限制
 
-1. 关机页尚未接真实关机动作
-2. 网络页仅支持固定热点模式，不支持自由切换热点
-3. `MY NET` 不是扫描结果列表，只是目标热点连接状态查看页
-4. Todo 同步依赖局域网 Web 服务，设备本身不负责编辑 Todo 文本
-5. 闹钟当前没有名称字段
-6. `ENV SAMPLE` 尚未形成完整任务级动态重配置接口
+1. 当前设备端不展示已完成 Todo。
+2. 当前设备端不存储事件历史，也不查看事件历史。
+3. 当前配置快照解析仍是轻量实现。
+4. 更完整的控制中心扩展设计，见 `docs/plans/2026-06-09-web-device-control-center-design.md`。

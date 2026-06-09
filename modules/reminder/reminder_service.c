@@ -25,6 +25,10 @@ static int64_t s_env_last_alert_play_us;
 static bool s_todo_seen_once;
 static char s_known_todo_ids[APP_TODO_MAX_ITEMS][24];
 static uint8_t s_known_todo_count;
+static int64_t s_presence_present_since_us;
+static bool s_rest_reminder_fired;
+
+#define APP_REST_REMINDER_PRESENT_US (3LL * 60LL * 60LL * 1000000LL)
 
 static const char *env_alert_name(app_audio_event_t event)
 {
@@ -131,6 +135,9 @@ static void update_alarm_runtime(app_settings_t *settings, const struct tm *t)
 			int ret = audio_service_play_event(APP_AUDIO_EVENT_ALARM);
 			ESP_LOGI(TAG, "alarm fired index=%u time=%02u:%02u ret=%d",
 				 (unsigned)i, (unsigned)alarm->hour, (unsigned)alarm->minute, ret);
+			if (ret == 0) {
+				(void)net_service_request_report_event("alarm_triggered", NULL);
+			}
 		} else {
 			ESP_LOGI(TAG, "alarm fired index=%u time=%02u:%02u voice=0",
 				 (unsigned)i, (unsigned)alarm->hour, (unsigned)alarm->minute);
@@ -201,6 +208,11 @@ static void update_env_alert_runtime(const app_settings_t *settings)
 		if (settings->env_voice_on) {
 			int ret = audio_service_play_event(event);
 			ESP_LOGI(TAG, "env voice event=%s ret=%d", env_alert_name(event), ret);
+			if (ret == 0) {
+				(void)net_service_request_report_event("env_alert_triggered", NULL);
+			}
+		} else {
+			(void)net_service_request_report_event("env_alert_triggered", NULL);
 		}
 		s_env_last_alert_play_us = now_us;
 		s_env_active_alert = event;
@@ -239,9 +251,50 @@ static void update_todo_runtime(const app_settings_t *settings)
 	if (new_count > 0U) {
 		ESP_LOGI(TAG, "new todo alert count=%u voice=%d", (unsigned)new_count, settings->todo_voice_on ? 1 : 0);
 		if (settings->todo_voice_on) {
-			int ret = audio_service_play_event(APP_AUDIO_EVENT_REST_REMINDER);
+			int ret = audio_service_play_event(APP_AUDIO_EVENT_TODO_SYNC_UP);
 			ESP_LOGI(TAG, "todo voice ret=%d", ret);
+			if (ret == 0) {
+				(void)net_service_request_report_event("todo_sync_up_played", NULL);
+			}
 		}
+	}
+}
+
+static void update_rest_reminder_runtime(void)
+{
+	app_presence_status_t presence = { 0 };
+	if (!presence_service_get_status(&presence)) {
+		return;
+	}
+
+	const int64_t now_us = esp_timer_get_time();
+	if (!presence.detected) {
+		s_presence_present_since_us = 0;
+		s_rest_reminder_fired = false;
+		return;
+	}
+
+	if (s_presence_present_since_us == 0) {
+		s_presence_present_since_us = now_us;
+		s_rest_reminder_fired = false;
+		return;
+	}
+
+	if (s_rest_reminder_fired) {
+		return;
+	}
+
+	const int64_t present_us = now_us - s_presence_present_since_us;
+	if (present_us < APP_REST_REMINDER_PRESENT_US) {
+		return;
+	}
+
+	int ret = audio_service_play_event(APP_AUDIO_EVENT_REST_REMINDER);
+	ESP_LOGI(TAG, "rest reminder fired present_s=%" PRIi64 " ret=%d",
+		 present_us / 1000000LL, ret);
+	if (ret == 0) {
+		s_rest_reminder_fired = true;
+		(void)net_service_request_report_event("rest_reminder_triggered", NULL);
 	}
 }
 
@@ -262,6 +315,7 @@ static void reminder_task(void *arg)
 		update_hour_chime_runtime(&settings, &t);
 		update_env_alert_runtime(&settings);
 		update_todo_runtime(&settings);
+		update_rest_reminder_runtime();
 
 		vTaskDelay(pdMS_TO_TICKS(1000));
 	}

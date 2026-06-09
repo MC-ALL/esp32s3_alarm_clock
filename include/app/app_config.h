@@ -25,8 +25,28 @@
 #define APP_TODO_WEB_PATH "/api/todos"
 #endif
 
+#ifndef APP_DEVICE_CONFIG_WEB_PATH
+#define APP_DEVICE_CONFIG_WEB_PATH "/api/device/config"
+#endif
+
+#ifndef APP_DEVICE_STATUS_WEB_PATH
+#define APP_DEVICE_STATUS_WEB_PATH "/api/device/status"
+#endif
+
+#ifndef APP_DEVICE_EVENTS_WEB_PATH
+#define APP_DEVICE_EVENTS_WEB_PATH "/api/device/events"
+#endif
+
 #ifndef APP_TODO_SYNC_INTERVAL_S
 #define APP_TODO_SYNC_INTERVAL_S 60
+#endif
+
+#ifndef APP_CONFIG_SYNC_INTERVAL_S
+#define APP_CONFIG_SYNC_INTERVAL_S 30
+#endif
+
+#ifndef APP_STATUS_REPORT_INTERVAL_S
+#define APP_STATUS_REPORT_INTERVAL_S 10
 #endif
 
 #endif

@@ -49,6 +49,8 @@ extern const uint8_t env_humi_low_wav_start[] asm("_binary_env_humi_low_wav_star
 extern const uint8_t env_humi_low_wav_end[] asm("_binary_env_humi_low_wav_end");
 extern const uint8_t env_humi_high_wav_start[] asm("_binary_env_humi_high_wav_start");
 extern const uint8_t env_humi_high_wav_end[] asm("_binary_env_humi_high_wav_end");
+extern const uint8_t sync_up_wav_start[] asm("_binary_sync_up_wav_start");
+extern const uint8_t sync_up_wav_end[] asm("_binary_sync_up_wav_end");
 extern const uint8_t rest_reminder_wav_start[] asm("_binary_rest_reminder_wav_start");
 extern const uint8_t rest_reminder_wav_end[] asm("_binary_rest_reminder_wav_end");
 extern const uint8_t clock_wav_start[] asm("_binary_clock_wav_start");
@@ -85,6 +87,10 @@ static const app_audio_clip_t APP_CLIP_ENV_HUMI_LOW = {
 static const app_audio_clip_t APP_CLIP_ENV_HUMI_HIGH = {
 	.data = env_humi_high_wav_start,
 	.end = env_humi_high_wav_end,
+};
+static const app_audio_clip_t APP_CLIP_TODO_SYNC_UP = {
+	.data = sync_up_wav_start,
+	.end = sync_up_wav_end,
 };
 static const app_audio_clip_t APP_CLIP_REST = {
 	.data = rest_reminder_wav_start,
@@ -239,6 +245,8 @@ static const app_audio_clip_t *audio_get_clip(app_audio_event_t event_id)
 		return &APP_CLIP_ENV_HUMI_LOW;
 	case APP_AUDIO_EVENT_ENV_HUMI_HIGH:
 		return &APP_CLIP_ENV_HUMI_HIGH;
+	case APP_AUDIO_EVENT_TODO_SYNC_UP:
+		return &APP_CLIP_TODO_SYNC_UP;
 	case APP_AUDIO_EVENT_REST_REMINDER:
 		return &APP_CLIP_REST;
 	case APP_AUDIO_EVENT_ALARM:

@@ -3,71 +3,169 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>时钟待办</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260520c" />
+    <title>时钟控制中心</title>
+    <link rel="stylesheet" href="/static/style.css?v=20260609a" />
   </head>
   <body>
     <div class="page-shell"></div>
-    <main class="app-shell">
+    <main class="app-shell control-shell">
       <header class="app-header">
         <div class="title-block">
-          <p class="eyebrow">LOCAL TODO SOURCE</p>
-          <h1>时钟待办</h1>
-          <p class="header-note">浏览器编辑，时钟拉取，局域网内同步。</p>
+          <p class="eyebrow">SMART CLOCK CONTROL CENTER</p>
+          <h1>时钟控制中心</h1>
+          <p class="header-note">Web 管配置，设备拉取执行；设备上报状态和事件。</p>
         </div>
         <div id="save-status" class="save-status idle">空闲</div>
       </header>
 
-      <section class="create-panel">
-        <div class="panel-label-row">
-          <span class="panel-label">快速新增</span>
-          <span class="panel-tip">回车可直接提交</span>
-        </div>
-        <form id="create-form" class="create-form">
-          <input
-            id="todo-input"
-            name="text"
-            type="text"
-            maxlength="96"
-            autocomplete="off"
-            placeholder="输入一条待办事项"
-          />
-          <button type="submit">添加</button>
-        </form>
-        <p id="form-error" class="inline-error" hidden></p>
+      <section class="grid-layout">
+        <section class="panel-card status-card">
+          <div class="section-head compact-head">
+            <div>
+              <h2>设备状态</h2>
+              <p class="section-note">最近一次状态上报快照</p>
+            </div>
+            <button id="refresh-status" class="ghost-button" type="button">刷新</button>
+          </div>
+          <div class="status-grid">
+            <article class="metric-tile">
+              <span class="metric-label">在线</span>
+              <strong id="device-online" class="metric-value">--</strong>
+            </article>
+            <article class="metric-tile">
+              <span class="metric-label">温度</span>
+              <strong id="device-temp" class="metric-value">--</strong>
+            </article>
+            <article class="metric-tile">
+              <span class="metric-label">湿度</span>
+              <strong id="device-humi" class="metric-value">--</strong>
+            </article>
+            <article class="metric-tile">
+              <span class="metric-label">光照</span>
+              <strong id="device-lux" class="metric-value">--</strong>
+            </article>
+            <article class="metric-tile metric-wide">
+              <span class="metric-label">是否有人</span>
+              <strong id="device-presence" class="metric-value">--</strong>
+            </article>
+            <article class="metric-tile metric-wide">
+              <span class="metric-label">上次更新</span>
+              <strong id="device-updated-at" class="metric-value small">--</strong>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel-card todo-card">
+          <div class="section-head">
+            <div>
+              <h2>未完成 Todo</h2>
+              <p class="section-note">设备端只拉取这里的内容。</p>
+            </div>
+            <span id="pending-count" class="section-count">0</span>
+          </div>
+          <section class="create-panel embedded-panel">
+            <div class="panel-label-row">
+              <span class="panel-label">快速新增</span>
+              <span class="panel-tip">回车可直接提交</span>
+            </div>
+            <form id="create-form" class="create-form">
+              <input
+                id="todo-input"
+                name="text"
+                type="text"
+                maxlength="96"
+                autocomplete="off"
+                placeholder="输入一条待办事项"
+              />
+              <button type="submit">添加</button>
+            </form>
+            <p id="form-error" class="inline-error" hidden></p>
+          </section>
+          <div id="pending-list" class="todo-list"></div>
+        </section>
+
+        <section class="panel-card completed-card">
+          <div class="section-head compact-head">
+            <div>
+              <h2>已完成 Todo</h2>
+              <p class="section-note">仅供查看，不支持恢复为未完成。</p>
+            </div>
+            <span id="completed-count" class="section-count">0</span>
+          </div>
+          <div id="completed-list" class="todo-list completed-list"></div>
+        </section>
+
+        <section class="panel-card alarms-card">
+          <div class="section-head compact-head">
+            <div>
+              <h2>闹钟管理</h2>
+              <p class="section-note">保存后更新 Web 真源，设备按配置快照拉取。</p>
+            </div>
+            <div class="header-actions">
+              <button id="add-alarm" class="ghost-button" type="button">新增</button>
+              <button id="save-alarms" type="button">保存闹钟</button>
+            </div>
+          </div>
+          <div id="alarms-list" class="alarm-list"></div>
+        </section>
+
+        <section class="panel-card voice-card">
+          <div class="section-head compact-head">
+            <div>
+              <h2>语音设置</h2>
+              <p class="section-note">与设备端现有语音开关字段保持一致。</p>
+            </div>
+            <button id="save-voice-settings" type="button">保存设置</button>
+          </div>
+          <div id="voice-settings" class="toggle-grid">
+            <label class="toggle-card"><input id="voice-todo" type="checkbox" /><span>Todo 提示</span></label>
+            <label class="toggle-card"><input id="voice-alarm" type="checkbox" /><span>闹钟提醒</span></label>
+            <label class="toggle-card"><input id="voice-env" type="checkbox" /><span>环境语音</span></label>
+            <label class="toggle-card"><input id="voice-env-alert" type="checkbox" /><span>环境提醒</span></label>
+            <label class="toggle-card"><input id="voice-hour-chime" type="checkbox" /><span>整点提示</span></label>
+          </div>
+        </section>
+
+        <section class="panel-card events-card">
+          <div class="section-head compact-head">
+            <div>
+              <h2>事件历史</h2>
+              <p class="section-note">事件只存 Web 后端，设备不保留历史。</p>
+            </div>
+            <button id="refresh-events" class="ghost-button" type="button">刷新</button>
+          </div>
+          <div class="filter-row">
+            <select id="event-type-filter">
+              <option value="">全部事件</option>
+              <option value="todo_completed">Todo 完成</option>
+              <option value="todo_deleted">Todo 删除</option>
+              <option value="alarm_triggered">闹钟触发</option>
+              <option value="rest_reminder_triggered">休息提醒</option>
+              <option value="env_alert_triggered">环境提醒</option>
+              <option value="welcome_played">欢迎提示</option>
+              <option value="todo_sync_up_played">Todo 同步提示</option>
+            </select>
+          </div>
+          <div id="events-list" class="event-list"></div>
+        </section>
+
+        <section class="panel-card model-card">
+          <div class="section-head compact-head">
+            <div>
+              <h2>模型对话页</h2>
+              <p class="section-note">当前只保留空接口，占位展示。</p>
+            </div>
+          </div>
+          <div class="placeholder-box">
+            <p>后续只向模型提供当前配置与当前状态摘要，不提供事件历史。</p>
+          </div>
+        </section>
       </section>
 
       <section id="load-error" class="error-panel" hidden>
-        <p>待办数据加载失败。</p>
+        <p>控制中心数据加载失败。</p>
         <p id="load-error-detail" class="error-detail" hidden></p>
         <button id="retry-load" type="button">重试</button>
-      </section>
-
-      <section class="list-panel">
-        <div class="section-head">
-          <div>
-            <h2>待处理</h2>
-            <p class="section-note">主要列表按当前顺序直接提供给时钟端。</p>
-          </div>
-          <span id="pending-count" class="section-count">0</span>
-        </div>
-        <div id="pending-list" class="todo-list"></div>
-      </section>
-
-      <section class="list-panel completed-panel">
-        <button id="completed-toggle" class="completed-toggle" type="button" aria-expanded="false">
-          <span class="completed-toggle-copy">
-            <span>已完成</span>
-            <span class="section-note subtle">默认折叠</span>
-          </span>
-          <span class="completed-toggle-meta">
-            <span id="completed-count" class="section-count">0</span>
-            <span class="chevron" aria-hidden="true">⌄</span>
-          </span>
-        </button>
-        <div id="completed-wrapper" class="completed-wrapper collapsed">
-          <div id="completed-list" class="todo-list completed-list"></div>
-        </div>
       </section>
     </main>
 
@@ -86,6 +184,41 @@
       </article>
     </template>
 
-    <script src="/static/app.js?v=20260520c" defer></script>
+    <template id="completed-item-template">
+      <article class="todo-item done readonly-item">
+        <div class="readonly-mark">✓</div>
+        <div class="readonly-copy">
+          <p class="readonly-text"></p>
+          <p class="readonly-meta"></p>
+        </div>
+      </article>
+    </template>
+
+    <template id="alarm-item-template">
+      <article class="alarm-item">
+        <div class="alarm-time-row">
+          <label>时<input class="alarm-hour" type="number" min="0" max="23" /></label>
+          <label>分<input class="alarm-minute" type="number" min="0" max="59" /></label>
+        </div>
+        <div class="alarm-toggle-row">
+          <label><input class="alarm-repeat" type="checkbox" />重复</label>
+          <label><input class="alarm-enabled" type="checkbox" />启用</label>
+          <label><input class="alarm-voice" type="checkbox" />语音</label>
+          <button class="ghost-button remove-alarm" type="button">删除</button>
+        </div>
+      </article>
+    </template>
+
+    <template id="event-item-template">
+      <article class="event-item">
+        <div class="event-top-row">
+          <strong class="event-type"></strong>
+          <span class="event-time"></span>
+        </div>
+        <p class="event-meta"></p>
+      </article>
+    </template>
+
+    <script src="/static/app.js?v=20260609a" defer></script>
   </body>
 </html>

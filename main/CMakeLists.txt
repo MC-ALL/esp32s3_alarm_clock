@@ -29,6 +29,7 @@ idf_component_register(
     "audio_embeds/env_temp_high.wav"
     "audio_embeds/env_humi_low.wav"
     "audio_embeds/env_humi_high.wav"
+    "audio_embeds/sync_up.wav"
     "audio_embeds/rest_reminder.wav"
     "audio_embeds/clock.wav"
   REQUIRES

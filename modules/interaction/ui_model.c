@@ -424,6 +424,14 @@ static void save_settings(void)
 	int ret = settings_model_set(&settings);
 	if (ret != 0) {
 		ESP_LOGW(TAG, "settings save failed ret=%d", ret);
+		return;
+	}
+
+	if (net_service_request_push_alarm_settings(&settings) != 0) {
+		ESP_LOGW(TAG, "push alarm settings request failed");
+	}
+	if (net_service_request_push_voice_settings(&settings) != 0) {
+		ESP_LOGW(TAG, "push voice settings request failed");
 	}
 }
 
@@ -724,9 +732,7 @@ static void render_todo_settings(lv_obj_t *screen)
 {
 	lv_obj_t *area = render_settings_area(screen, "TODO SET", c_purple());
 	render_row(area, 0, "SYNC NOW", s_focus == 0U);
-	char refresh[32];
-	snprintf(refresh, sizeof(refresh), "REFRESH %uM", (unsigned)s_todo_refresh_min);
-	render_row(area, 1, refresh, s_focus == 1U);
+	render_row(area, 1, "PULL 30S", s_focus == 1U);
 	render_row(area, 2, s_todo_voice_on ? "VOICE ON" : "VOICE OFF", s_focus == 2U);
 	render_row(area, 3, "TEST VOICE", s_focus == 3U);
 	scroll_focus_into_view(area, s_focus);
@@ -958,7 +964,7 @@ static void play_alarm_voice_test(void)
 
 static void play_todo_voice_test(void)
 {
-	const app_audio_event_t events[] = { APP_AUDIO_EVENT_REST_REMINDER };
+	const app_audio_event_t events[] = { APP_AUDIO_EVENT_TODO_SYNC_UP };
 	play_voice_test(events, sizeof(events) / sizeof(events[0]));
 }
 
@@ -1014,16 +1020,17 @@ static void update_low_clock_presence_runtime(void)
 		return;
 	}
 
-	if (s_main_page == UI_PAGE_LOW_CLOCK && s_low_clock_auto_entered && presence.detected &&
-	    s_presence_present_since_us > 0) {
-		const int64_t present_s = (now_us - s_presence_present_since_us) / 1000000LL;
-		if (present_s >= (int64_t)s_low_exit_present_s) {
-			s_main_page = UI_PAGE_HOME;
-			s_low_clock_auto_entered = false;
-			s_dirty = true;
-			ESP_LOGI(TAG, "exit low clock present_s=%" PRIi64 " threshold=%u healthy=%d fallback=%d",
-				 present_s,
-				 (unsigned)s_low_exit_present_s,
+		if (s_main_page == UI_PAGE_LOW_CLOCK && s_low_clock_auto_entered && presence.detected &&
+		    s_presence_present_since_us > 0) {
+			const int64_t present_s = (now_us - s_presence_present_since_us) / 1000000LL;
+			if (present_s >= (int64_t)s_low_exit_present_s) {
+				s_main_page = UI_PAGE_HOME;
+				s_low_clock_auto_entered = false;
+				s_dirty = true;
+				(void)net_service_request_report_event("welcome_played", NULL);
+				ESP_LOGI(TAG, "exit low clock present_s=%" PRIi64 " threshold=%u healthy=%d fallback=%d",
+					 present_s,
+					 (unsigned)s_low_exit_present_s,
 				 presence.radar_healthy ? 1 : 0,
 				 presence.using_out_fallback ? 1 : 0);
 		}
@@ -1123,16 +1130,7 @@ static void process_ok_in_settings(void)
 			int ret = net_service_request_todo_sync_now();
 			ESP_LOGI(TAG, "todo sync requested ret=%d", ret);
 		} else if (s_focus == 1U) {
-			static const uint8_t values[] = { 1, 5, 10, 30 };
-			for (size_t i = 0; i < sizeof(values); i++) {
-				if (s_todo_refresh_min == values[i]) {
-					s_todo_refresh_min = values[(i + 1U) % sizeof(values)];
-					save_settings();
-					return;
-				}
-			}
-			s_todo_refresh_min = 5;
-			save_settings();
+			return;
 		} else if (s_focus == 2U) {
 			s_todo_voice_on = !s_todo_voice_on;
 			save_settings();

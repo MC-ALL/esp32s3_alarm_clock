@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <app/settings_model.h>
+
 typedef struct {
 	bool wifi_started;
 	bool wifi_connected;
@@ -32,11 +34,21 @@ typedef struct {
 	app_todo_item_t items[APP_TODO_MAX_ITEMS];
 } app_todo_snapshot_t;
 
+typedef struct {
+	uint32_t config_version;
+	char updated_at[40];
+	app_settings_t settings;
+} app_device_config_snapshot_t;
+
 bool net_service_get_status(app_net_status_t *out_status);
 int net_service_request_connect_now(void);
 bool net_service_get_todo_snapshot(app_todo_snapshot_t *out_snapshot);
+bool net_service_get_device_config_snapshot(app_device_config_snapshot_t *out_snapshot);
 int net_service_request_todo_sync_now(void);
 int net_service_request_todo_set_done(const char *todo_id, bool done);
 int net_service_request_todo_delete(const char *todo_id);
+int net_service_request_push_alarm_settings(const app_settings_t *settings);
+int net_service_request_push_voice_settings(const app_settings_t *settings);
+int net_service_request_report_event(const char *event_type, const char *todo_id);
 
 #endif
