@@ -25,6 +25,7 @@ idf_component_register(
     "modules/interaction/display_lvgl_port.c"
     "modules/interaction/display_service.c"
     "modules/interaction/backlight_service.c"
+    "modules/sensing/environment_bh1750.c"
     "modules/sensing/environment_dht11.c"
     "modules/sensing/environment_service.c"
     "modules/sensing/presence_ld2410.c"

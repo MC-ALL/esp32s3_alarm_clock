@@ -1,5 +1,6 @@
 #include "app_module.h"
 #include <app_bus.h>
+#include <environment_bh1750.h>
 #include <environment_dht11.h>
 #include <environment_service.h>
 #include <hw_config.h>
@@ -7,8 +8,6 @@
 #include <settings_model.h>
 
 #include <driver/gpio.h>
-#include <driver/i2c_master.h>
-#include <esp_err.h>
 #include <esp_log.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
@@ -17,8 +16,6 @@
 #include <inttypes.h>
 
 static const char *TAG = "env";
-static i2c_master_bus_handle_t s_i2c_bus;
-static i2c_master_dev_handle_t s_bh1750_dev;
 static TaskHandle_t s_env_task;
 static app_environment_snapshot_t s_snapshot;
 static SemaphoreHandle_t s_snapshot_mutex;
@@ -81,28 +78,6 @@ static void environment_log_snapshot(const app_environment_snapshot_t *snapshot)
 	ESP_LOGI(TAG, "sample lux=-- temp=-- humi=-- valid=0/0 ts_us=%" PRIi64, snapshot->updated_at_us);
 }
 
-static int bh1750_measure_lux(float *lux_out)
-{
-	static const uint8_t bh1750_cmd = 0x10;
-	uint8_t raw[2] = { 0 };
-
-	esp_err_t err = i2c_master_transmit(s_bh1750_dev, &bh1750_cmd, sizeof(bh1750_cmd), 100);
-	if (err != ESP_OK) {
-		return (int)err;
-	}
-
-	vTaskDelay(pdMS_TO_TICKS(180));
-
-	err = i2c_master_receive(s_bh1750_dev, raw, sizeof(raw), 100);
-	if (err != ESP_OK) {
-		return (int)err;
-	}
-
-	const uint16_t level = ((uint16_t)raw[0] << 8) | raw[1];
-	*lux_out = (float)level / 1.2f;
-	return 0;
-}
-
 static void environment_task(void *arg)
 {
 	(void)arg;
@@ -113,7 +88,7 @@ static void environment_task(void *arg)
 		float lux = 0.0f;
 		float temperature_c = 0.0f;
 		float humidity_percent = 0.0f;
-		const int bh1750_ret = bh1750_measure_lux(&lux);
+		const int bh1750_ret = environment_bh1750_measure_lux(&lux);
 		const int temp_humi_ret = s_temp_humidity_provider->read(&temperature_c, &humidity_percent);
 
 		if (xSemaphoreTake(s_snapshot_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
@@ -161,41 +136,15 @@ int environment_service_init(void)
 	(void)esp_log_level_set("dht", ESP_LOG_WARN);
 	s_temp_humidity_provider = environment_dht11_provider();
 
-	const i2c_master_bus_config_t bus_config = {
-		.i2c_port = APP_BH1750_I2C_PORT,
-		.sda_io_num = APP_PIN_BH1750_SDA,
-		.scl_io_num = APP_PIN_BH1750_SCL,
-		.clk_source = I2C_CLK_SRC_DEFAULT,
-		.glitch_ignore_cnt = 7,
-		.flags.enable_internal_pullup = true,
-	};
-	const i2c_device_config_t dev_config = {
-		.dev_addr_length = I2C_ADDR_BIT_LEN_7,
-		.device_address = APP_BH1750_I2C_ADDR,
-		.scl_speed_hz = APP_BH1750_I2C_HZ,
-	};
-
-	esp_err_t err = i2c_new_master_bus(&bus_config, &s_i2c_bus);
-	if (err != ESP_OK) {
-		ESP_LOGE(TAG, "i2c_new_master_bus failed: %s", esp_err_to_name(err));
-		return (int)err;
-	}
-
-	err = i2c_master_bus_add_device(s_i2c_bus, &dev_config, &s_bh1750_dev);
-	if (err != ESP_OK) {
-		ESP_LOGE(TAG, "i2c_master_bus_add_device failed: %s", esp_err_to_name(err));
-		(void)i2c_del_master_bus(s_i2c_bus);
-		s_i2c_bus = NULL;
-		return (int)err;
+	int err = environment_bh1750_init();
+	if (err != 0) {
+		return err;
 	}
 
 	err = s_temp_humidity_provider->init();
 	if (err != 0) {
 		ESP_LOGE(TAG, "%s init failed: %d", s_temp_humidity_provider->name, err);
-		(void)i2c_master_bus_rm_device(s_bh1750_dev);
-		s_bh1750_dev = NULL;
-		(void)i2c_del_master_bus(s_i2c_bus);
-		s_i2c_bus = NULL;
+		environment_bh1750_deinit();
 		return err;
 	}
 
@@ -208,10 +157,7 @@ int environment_service_init(void)
 	if (s_snapshot_mutex == NULL) {
 		ESP_LOGE(TAG, "failed to create snapshot mutex");
 		s_temp_humidity_provider->deinit();
-		(void)i2c_master_bus_rm_device(s_bh1750_dev);
-		s_bh1750_dev = NULL;
-		(void)i2c_del_master_bus(s_i2c_bus);
-		s_i2c_bus = NULL;
+		environment_bh1750_deinit();
 		return -1;
 	}
 	(void)app_bus_subscribe(APP_BUS_EVENT_SETTINGS_CHANGED, environment_bus_handler, NULL);
@@ -247,15 +193,7 @@ int environment_service_stop(void)
 		s_temp_humidity_provider->deinit();
 	}
 
-	if (s_bh1750_dev != NULL) {
-		(void)i2c_master_bus_rm_device(s_bh1750_dev);
-		s_bh1750_dev = NULL;
-	}
-
-	if (s_i2c_bus != NULL) {
-		(void)i2c_del_master_bus(s_i2c_bus);
-		s_i2c_bus = NULL;
-	}
+	environment_bh1750_deinit();
 
 	if (s_snapshot_mutex != NULL) {
 		vSemaphoreDelete(s_snapshot_mutex);
