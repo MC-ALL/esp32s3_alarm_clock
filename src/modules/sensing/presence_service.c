@@ -1,7 +1,7 @@
 #include "app_module.h"
-#include <app/hw_config.h>
-#include <app/presence_service.h>
-#include <app/module_common.h>
+#include <hw_config.h>
+#include <presence_service.h>
+#include <module_common.h>
 
 #include <inttypes.h>
 #include <string.h>

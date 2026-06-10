@@ -1,9 +1,10 @@
 #include "app_module.h"
-#include <app/audio_service.h>
-#include <app/environment_service.h>
-#include <app/module_common.h>
-#include <app/net_service.h>
-#include <app/settings_model.h>
+#include <audio_service.h>
+#include <environment_service.h>
+#include <module_common.h>
+#include <net_service.h>
+#include <presence_service.h>
+#include <settings_model.h>
 
 #include <esp_log.h>
 #include <esp_timer.h>

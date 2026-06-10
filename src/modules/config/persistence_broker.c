@@ -1,5 +1,5 @@
 #include "app_module.h"
-#include <app/module_common.h>
+#include <module_common.h>
 
 #include <esp_err.h>
 #include <nvs_flash.h>

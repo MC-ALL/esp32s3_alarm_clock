@@ -1,7 +1,7 @@
 #include "app_module.h"
-#include <app/audio_service.h>
-#include <app/hw_config.h>
-#include <app/module_common.h>
+#include <audio_service.h>
+#include <hw_config.h>
+#include <module_common.h>
 
 #include <driver/i2s_std.h>
 #include <esp_err.h>

@@ -53,6 +53,6 @@ dependencies:
 direct_dependencies:
 - esp-idf-lib/dht
 - lvgl/lvgl
-manifest_hash: 6996d74b16894c02c71cd0f73a7cab9c4087a618283913650043a5c931d88833
+manifest_hash: 27d2258f81248c4838249e6e688521c0402f95de05ab1a16fac65d7485db9f73
 target: esp32s3
 version: 3.0.0

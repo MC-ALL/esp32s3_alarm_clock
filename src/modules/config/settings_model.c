@@ -1,6 +1,6 @@
 #include "app_module.h"
-#include <app/module_common.h>
-#include <app/settings_model.h>
+#include <module_common.h>
+#include <settings_model.h>
 
 #include <esp_err.h>
 #include <esp_log.h>

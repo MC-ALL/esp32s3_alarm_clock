@@ -1,7 +1,7 @@
 #include "app_module.h"
-#include <app/display_service.h>
-#include <app/hw_config.h>
-#include <app/module_common.h>
+#include <display_service.h>
+#include <hw_config.h>
+#include <module_common.h>
 
 #include <driver/spi_common.h>
 #include <driver/spi_master.h>

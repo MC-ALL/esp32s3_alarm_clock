@@ -11,8 +11,8 @@ Handle two persistent bring-up issues:
 
 This round affects:
 
-- `modules/sensing/environment_service.c`
-- `modules/interaction/display_service.c`
+- `src/modules/sensing/environment_service.c`
+- `src/modules/interaction/display_service.c`
 - related public headers only if required
 
 ## DHT11 Direction

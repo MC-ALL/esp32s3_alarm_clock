@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include <app/settings_model.h>
+#include <settings_model.h>
 
 typedef struct {
 	bool wifi_started;

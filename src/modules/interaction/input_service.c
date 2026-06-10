@@ -1,8 +1,8 @@
 #include "app_module.h"
-#include <app/hw_config.h>
-#include <app/input_service.h>
-#include <app/module_common.h>
-#include <app/ui_model.h>
+#include <hw_config.h>
+#include <input_service.h>
+#include <module_common.h>
+#include <ui_model.h>
 
 #include <driver/gpio.h>
 #include <esp_err.h>

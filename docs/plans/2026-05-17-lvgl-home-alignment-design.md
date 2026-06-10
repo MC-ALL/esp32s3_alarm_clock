@@ -7,7 +7,7 @@ This round only targets the home page in `LVGL`.
 
 ## Scope
 
-Only `modules/interaction/display_service.c` is changed.
+Only `src/modules/interaction/display_service.c` is changed.
 No settings page, alarm page, network page, shutdown page, or input-driven page switching is included.
 
 ## Home Layout Target

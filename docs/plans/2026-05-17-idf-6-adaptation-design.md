@@ -9,10 +9,10 @@ This round targets build compatibility first. It does not expand feature scope o
 
 The adaptation scope is limited to these modules:
 
-- `modules/connectivity/net_service.c`
-- `modules/interaction/display_service.c`
-- `modules/audio/audio_service.c`
-- `modules/sensing/environment_service.c`
+- `src/modules/connectivity/net_service.c`
+- `src/modules/interaction/display_service.c`
+- `src/modules/audio/audio_service.c`
+- `src/modules/sensing/environment_service.c`
 
 The target is a clean `ESP-IDF 6.0.1` build path.
 Backward compatibility with `ESP-IDF 5.x` is not preserved in this round.

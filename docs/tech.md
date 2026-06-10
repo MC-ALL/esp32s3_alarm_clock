@@ -68,19 +68,19 @@
 
 按当前目录划分，主要模块如下：
 
-- `modules/interaction/`
+- `src/modules/interaction/`
   - 负责显示、背光、按键和界面模型
-- `modules/sensing/`
+- `src/modules/sensing/`
   - 负责环境采样和人体存在检测
-- `modules/connectivity/`
+- `src/modules/connectivity/`
   - 负责 Wi-Fi、时间同步、Todo 同步
-- `modules/audio/`
+- `src/modules/audio/`
   - 负责提示音与语音播放
-- `modules/config/`
+- `src/modules/config/`
   - 负责参数模型与持久化
-- `modules/core/`
+- `src/modules/core/`
   - 负责故障状态、生命周期和时间基线辅助模块
-- `modules/reminder/`
+- `src/modules/reminder/`
   - 负责提醒触发逻辑
 
 ---
@@ -224,9 +224,9 @@
 
 当前提示音资源以 `WAV` 文件形式嵌入固件，资源位于：
 
-- `main/audio_embeds/`
+- `assets/audio/`
 
-构建时通过 `main/CMakeLists.txt` 嵌入。
+构建时通过 `src/CMakeLists.txt` 嵌入。
 
 运行时流程为：
 

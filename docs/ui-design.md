@@ -4,7 +4,7 @@
 
 - 屏幕规格：`240x320` 竖屏
 - 本文档只描述当前固件中真实存在的页面、视图和交互
-- 以 `modules/interaction/ui_model.c` 的实现为准
+- 以 `src/modules/interaction/ui_model.c` 的实现为准
 
 ---
 

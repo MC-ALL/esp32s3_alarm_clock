@@ -9,7 +9,7 @@ Improve the current LVGL prototype in two ways:
 
 ## Scope
 
-This round is limited to `modules/interaction/display_service.c`.
+This round is limited to `src/modules/interaction/display_service.c`.
 No full multi-page business state machine is introduced.
 
 ## Home Page Revisions

@@ -1,7 +1,7 @@
 #include "app_module.h"
-#include <app/environment_service.h>
-#include <app/hw_config.h>
-#include <app/module_common.h>
+#include <environment_service.h>
+#include <hw_config.h>
+#include <module_common.h>
 
 #include <dht.h>
 #include <driver/gpio.h>

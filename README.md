@@ -59,49 +59,42 @@ Not yet fully mature:
 
 ### `src/`
 
-Application bootstrap and module orchestration.
+ESP-IDF application component, bootstrap, module orchestration, and feature modules.
 
 - `src/main.c`
 - `src/app_boot.c`
 - `src/app_module.c`
-
-### `modules/`
-
-Current module split:
-
-- `modules/interaction/`
+- `src/modules/interaction/`
   - display, backlight, input, UI model
-- `modules/sensing/`
+- `src/modules/sensing/`
   - environment sampling, presence detection
-- `modules/connectivity/`
+- `src/modules/connectivity/`
   - Wi-Fi, `SNTP`, config sync, status report, event report
-- `modules/audio/`
+- `src/modules/audio/`
   - WAV playback through `I2S`
-- `modules/config/`
+- `src/modules/config/`
   - settings and persistence
-- `modules/core/`
+- `src/modules/core/`
   - lifecycle / fault / timebase scaffolding
-- `modules/reminder/`
+- `src/modules/reminder/`
   - reminder triggering logic
 
-### `include/app/`
+### `include/`
 
 Public headers and shared configuration.
 
 Key files:
 
-- `include/app/hw_config.h`
-- `include/app/app_config.h`
-- `include/app/net_service.h`
-- `include/app/settings_model.h`
+- `include/hw_config.h`
+- `include/app_config.h`
+- `include/net_service.h`
+- `include/settings_model.h`
 
-### `main/`
+### `assets/`
 
-Build entry for the main component.
+Source assets used by the firmware and documentation.
 
-Also contains:
-
-- embedded audio clips under `main/audio_embeds/`
+- audio clips under `assets/audio/`
 
 ### `docs/`
 
@@ -205,7 +198,7 @@ The `LOW_CLOCK` page is the current low-disturbance display mode. It is entered 
 
 Main runtime config lives in:
 
-- `include/app/app_config.h`
+- `include/app_config.h`
 
 This currently includes:
 
@@ -217,7 +210,7 @@ This currently includes:
 
 Pin mapping lives in:
 
-- `include/app/hw_config.h`
+- `include/hw_config.h`
 
 ## 6. Handoff Notes
 

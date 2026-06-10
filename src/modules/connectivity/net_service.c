@@ -1,10 +1,10 @@
 #include "app_module.h"
-#include <app/app_config.h>
-#include <app/module_common.h>
-#include <app/net_service.h>
-#include <app/settings_model.h>
-#include <app/environment_service.h>
-#include <app/presence_service.h>
+#include <app_config.h>
+#include <module_common.h>
+#include <net_service.h>
+#include <settings_model.h>
+#include <environment_service.h>
+#include <presence_service.h>
 
 #include <ctype.h>
 #include <esp_err.h>
