@@ -18,6 +18,7 @@ idf_component_register(
     "modules/interaction/ui_navigation.c"
     "modules/interaction/ui_pages.c"
     "modules/interaction/ui_renderer.c"
+    "modules/interaction/ui_settings_adjust.c"
     "modules/interaction/ui_settings_controller.c"
     "modules/interaction/ui_settings_pages.c"
     "modules/interaction/ui_settings_store.c"
