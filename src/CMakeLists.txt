@@ -29,6 +29,7 @@ idf_component_register(
     "modules/interaction/ui_settings_store.c"
     "modules/interaction/ui_status_pages.c"
     "modules/interaction/ui_todo_view.c"
+    "modules/interaction/display_panel.c"
     "modules/interaction/display_lvgl_port.c"
     "modules/interaction/display_service.c"
     "modules/interaction/backlight_service.c"
