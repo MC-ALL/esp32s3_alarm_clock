@@ -7,6 +7,7 @@ idf_component_register(
     "modules/core/fault_state.c"
     "modules/core/timebase_service.c"
     "modules/core/app_bus.c"
+    "modules/config/settings_defaults.c"
     "modules/config/settings_model.c"
     "modules/config/persistence_broker.c"
     "modules/interaction/input_service.c"
