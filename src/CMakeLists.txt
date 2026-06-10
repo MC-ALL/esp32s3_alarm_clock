@@ -9,6 +9,7 @@ idf_component_register(
     "modules/core/app_bus.c"
     "modules/config/settings_defaults.c"
     "modules/config/settings_model.c"
+    "modules/config/settings_storage.c"
     "modules/config/persistence_broker.c"
     "modules/interaction/input_service.c"
     "modules/interaction/ui_actions.c"
