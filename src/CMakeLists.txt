@@ -13,6 +13,7 @@ idf_component_register(
     "modules/interaction/input_service.c"
     "modules/interaction/ui_actions.c"
     "modules/interaction/ui_alarm_view.c"
+    "modules/interaction/ui_key_queue.c"
     "modules/interaction/ui_low_clock_runtime.c"
     "modules/interaction/ui_model.c"
     "modules/interaction/ui_format.c"

@@ -1,8 +1,8 @@
 #include "app_module.h"
-#include <app_bus.h>
 #include <display_service.h>
 #include <module_common.h>
 #include <ui_actions.h>
+#include <ui_key_queue.h>
 #include <ui_low_clock_runtime.h>
 #include <ui_model.h>
 #include <ui_navigation.h>
@@ -13,14 +13,12 @@
 
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
-#include <freertos/queue.h>
 #include <freertos/task.h>
 #include <inttypes.h>
 #include <time.h>
 
 static const char *TAG = "ui";
 
-static QueueHandle_t s_key_queue;
 static TaskHandle_t s_ui_task;
 static ui_main_page_t s_main_page = UI_PAGE_HOME;
 static ui_view_t s_view = UI_VIEW_MAIN;
@@ -189,7 +187,7 @@ static void ui_task(void *arg)
 
 	for (;;) {
 		size_t key = 0;
-		while (s_key_queue != NULL && xQueueReceive(s_key_queue, &key, 0) == pdTRUE) {
+		while (ui_key_queue_receive(&key)) {
 			process_key(key);
 		}
 
@@ -214,34 +212,11 @@ static void ui_task(void *arg)
 	}
 }
 
-static void ui_model_handle_key_press(size_t key_index)
-{
-	if (s_key_queue == NULL) {
-		return;
-	}
-
-	if (xQueueSend(s_key_queue, &key_index, 0) != pdTRUE) {
-		ESP_LOGW(TAG, "key queue full key=%u", (unsigned)(key_index + 1U));
-	}
-}
-
-static void ui_bus_handler(const app_bus_event_t *event, void *ctx)
-{
-	(void)ctx;
-	if (event == NULL || event->type != APP_BUS_EVENT_INPUT_KEY_PRESSED) {
-		return;
-	}
-	ui_model_handle_key_press((size_t)event->data.input.key_index);
-}
-
 int ui_model_init(void)
 {
-	s_key_queue = xQueueCreate(12, sizeof(size_t));
-	if (s_key_queue == NULL) {
-		ESP_LOGE(TAG, "failed to create key queue");
+	if (ui_key_queue_init() != 0) {
 		return -1;
 	}
-	(void)app_bus_subscribe(APP_BUS_EVENT_INPUT_KEY_PRESSED, ui_bus_handler, NULL);
 
 	ui_settings_store_load(&s_settings);
 
@@ -267,10 +242,7 @@ int ui_model_stop(void)
 		s_ui_task = NULL;
 	}
 
-	if (s_key_queue != NULL) {
-		vQueueDelete(s_key_queue);
-		s_key_queue = NULL;
-	}
+	ui_key_queue_deinit();
 
 	return 0;
 }
