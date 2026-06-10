@@ -116,7 +116,7 @@
 - 启停闹钟
 
 当前新增对接：
-- 本地保存成功后，会立即请求 Web 更新闹钟真源
+- 本地保存成功后，UI 发布 `APP_BUS_EVENT_ALARM_SETTINGS_CHANGED`，由 `sync_service` 请求 Web 更新闹钟真源
 
 ### 4.2 语音设置相关
 
@@ -128,18 +128,19 @@
 - 整点提示开关
 
 当前新增对接：
-- 本地保存成功后，会立即请求 Web 更新语音设置真源
+- 本地保存成功后，UI 发布 `APP_BUS_EVENT_VOICE_SETTINGS_CHANGED`，由 `sync_service` 请求 Web 更新语音设置真源
 
 ### 4.3 Todo 相关
 
-当前真实网络动作：
-- `net_service_request_todo_sync_now()`
-- `net_service_request_todo_set_done()`
-- `net_service_request_todo_delete()`
+当前真实动作通过 `app_bus` 发布：
+- `APP_BUS_EVENT_TODO_SYNC_REQUEST`
+- `APP_BUS_EVENT_TODO_COMPLETE_REQUEST`
+- `APP_BUS_EVENT_TODO_DELETE_REQUEST`
 
 当前语义：
-- Todo 完成会立即请求 Web 归档
-- Todo 删除会立即请求 Web 删除
+- Todo 完成由 `sync_service` 请求 Web 归档
+- Todo 删除由 `sync_service` 请求 Web 删除
+- 失败时进入 `sync_service` 延迟重试队列
 
 ### 4.4 状态与事件相关
 
@@ -147,6 +148,8 @@
 - 周期拉取 `GET /api/device/config`
 - 周期上报 `POST /api/device/status`
 - 事件上报 `POST /api/device/events`
+
+这些 Web 对接由 `sync_service` 统一负责，`net_service` 只提供 Wi-Fi/IP/SNTP 状态和通用 HTTP 能力。
 
 设备当前会上报的关键事件包括：
 - `alarm_triggered`

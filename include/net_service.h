@@ -2,9 +2,8 @@
 #define APP_NET_SERVICE_H_
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
-
-#include <settings_model.h>
 
 typedef struct {
 	bool wifi_started;
@@ -17,38 +16,15 @@ typedef struct {
 } app_net_status_t;
 
 typedef struct {
-	char id[24];
-	char text[96];
-	bool done;
-	char updated_at[40];
-} app_todo_item_t;
-
-#define APP_TODO_MAX_ITEMS 8
-
-typedef struct {
-	bool sync_ok;
-	bool sync_in_progress;
-	uint8_t count;
-	char last_error[64];
-	char last_sync_at[32];
-	app_todo_item_t items[APP_TODO_MAX_ITEMS];
-} app_todo_snapshot_t;
-
-typedef struct {
-	uint32_t config_version;
-	char updated_at[40];
-	app_settings_t settings;
-} app_device_config_snapshot_t;
+	char *body;
+	size_t body_len;
+	size_t body_cap;
+	int status_code;
+} app_net_http_response_t;
 
 bool net_service_get_status(app_net_status_t *out_status);
 int net_service_request_connect_now(void);
-bool net_service_get_todo_snapshot(app_todo_snapshot_t *out_snapshot);
-bool net_service_get_device_config_snapshot(app_device_config_snapshot_t *out_snapshot);
-int net_service_request_todo_sync_now(void);
-int net_service_request_todo_set_done(const char *todo_id, bool done);
-int net_service_request_todo_delete(const char *todo_id);
-int net_service_request_push_alarm_settings(const app_settings_t *settings);
-int net_service_request_push_voice_settings(const app_settings_t *settings);
-int net_service_request_report_event(const char *event_type, const char *todo_id);
+int net_service_http_request(const char *method, const char *url, const char *body,
+			     app_net_http_response_t *response);
 
 #endif

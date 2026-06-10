@@ -13,6 +13,10 @@ int timebase_service_init(void);
 int timebase_service_start(void);
 int timebase_service_stop(void);
 
+int app_bus_init(void);
+int app_bus_start(void);
+int app_bus_stop(void);
+
 int settings_model_init(void);
 int settings_model_start(void);
 int settings_model_stop(void);
@@ -48,6 +52,10 @@ int presence_service_stop(void);
 int net_service_init(void);
 int net_service_start(void);
 int net_service_stop(void);
+
+int sync_service_init(void);
+int sync_service_start(void);
+int sync_service_stop(void);
 
 int reminder_service_init(void);
 int reminder_service_start(void);

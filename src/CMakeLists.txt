@@ -6,6 +6,7 @@ idf_component_register(
     "modules/core/lifecycle_service.c"
     "modules/core/fault_state.c"
     "modules/core/timebase_service.c"
+    "modules/core/app_bus.c"
     "modules/config/settings_model.c"
     "modules/config/persistence_broker.c"
     "modules/interaction/input_service.c"
@@ -15,6 +16,7 @@ idf_component_register(
     "modules/sensing/environment_service.c"
     "modules/sensing/presence_service.c"
     "modules/connectivity/net_service.c"
+    "modules/sync/sync_service.c"
     "modules/reminder/reminder_service.c"
     "modules/audio/audio_service.c"
   INCLUDE_DIRS

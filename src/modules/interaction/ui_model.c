@@ -1,11 +1,12 @@
 #include "app_module.h"
-#include <audio_service.h>
+#include <app_bus.h>
 #include <display_service.h>
 #include <environment_service.h>
 #include <module_common.h>
 #include <net_service.h>
 #include <presence_service.h>
 #include <settings_model.h>
+#include <sync_service.h>
 #include <ui_model.h>
 
 #include <esp_log.h>
@@ -20,6 +21,8 @@
 #include <time.h>
 
 static const char *TAG = "ui";
+
+static void publish_settings_event(app_bus_event_type_t type, const app_settings_t *settings);
 
 #define UI_SCREEN_W 240
 #define UI_SCREEN_H 320
@@ -376,7 +379,6 @@ static void apply_settings(const app_settings_t *settings)
 			.voice = settings->alarms[i].voice,
 		};
 	}
-	(void)environment_service_set_sample_interval_s(s_env_sample_s);
 }
 
 static void collect_settings(app_settings_t *settings)
@@ -426,13 +428,75 @@ static void save_settings(void)
 		ESP_LOGW(TAG, "settings save failed ret=%d", ret);
 		return;
 	}
+	publish_settings_event(APP_BUS_EVENT_SETTINGS_CHANGED, &settings);
+}
 
-	if (net_service_request_push_alarm_settings(&settings) != 0) {
-		ESP_LOGW(TAG, "push alarm settings request failed");
+static void publish_settings_event(app_bus_event_type_t type, const app_settings_t *settings)
+{
+	if (settings == NULL) {
+		return;
 	}
-	if (net_service_request_push_voice_settings(&settings) != 0) {
-		ESP_LOGW(TAG, "push voice settings request failed");
+
+	app_bus_event_t event = {
+		.type = type,
+	};
+	event.data.settings.settings = *settings;
+	if (app_bus_publish(&event) != 0) {
+		ESP_LOGW(TAG, "publish settings event failed type=%d", (int)type);
 	}
+}
+
+static void save_alarm_settings(void)
+{
+	app_settings_t settings = { 0 };
+	collect_settings(&settings);
+	int ret = settings_model_set(&settings);
+	if (ret != 0) {
+		ESP_LOGW(TAG, "alarm settings save failed ret=%d", ret);
+		return;
+	}
+	publish_settings_event(APP_BUS_EVENT_SETTINGS_CHANGED, &settings);
+	publish_settings_event(APP_BUS_EVENT_ALARM_SETTINGS_CHANGED, &settings);
+}
+
+static void save_voice_settings(void)
+{
+	app_settings_t settings = { 0 };
+	collect_settings(&settings);
+	int ret = settings_model_set(&settings);
+	if (ret != 0) {
+		ESP_LOGW(TAG, "voice settings save failed ret=%d", ret);
+		return;
+	}
+	publish_settings_event(APP_BUS_EVENT_SETTINGS_CHANGED, &settings);
+	publish_settings_event(APP_BUS_EVENT_VOICE_SETTINGS_CHANGED, &settings);
+}
+
+static int publish_todo_action(app_bus_event_type_t type, const char *todo_id)
+{
+	if (todo_id == NULL || todo_id[0] == '\0') {
+		return -1;
+	}
+	app_bus_event_t event = {
+		.type = type,
+	};
+	strlcpy(event.data.todo.todo_id, todo_id, sizeof(event.data.todo.todo_id));
+	return app_bus_publish(&event);
+}
+
+static int publish_device_event(const char *event_type, const char *todo_id)
+{
+	if (event_type == NULL || event_type[0] == '\0') {
+		return -1;
+	}
+	app_bus_event_t event = {
+		.type = APP_BUS_EVENT_DEVICE_EVENT,
+	};
+	strlcpy(event.data.device_event.event_type, event_type, sizeof(event.data.device_event.event_type));
+	if (todo_id != NULL) {
+		strlcpy(event.data.device_event.todo_id, todo_id, sizeof(event.data.device_event.todo_id));
+	}
+	return app_bus_publish(&event);
 }
 
 static void sync_settings_from_model_for_main(void)
@@ -452,7 +516,7 @@ static void render_home(lv_obj_t *screen)
 	char period_text[4];
 	char date_text[16];
 	app_todo_snapshot_t todo = { 0 };
-	(void)net_service_get_todo_snapshot(&todo);
+	(void)sync_service_get_todo_snapshot(&todo);
 	format_time(time_text, sizeof(time_text), s_use_24h, false);
 	format_time_period(period_text, sizeof(period_text), s_use_24h);
 	format_date(date_text, sizeof(date_text));
@@ -526,7 +590,7 @@ static void render_alarm_page(lv_obj_t *screen)
 static void render_todo_page(lv_obj_t *screen)
 {
 	app_todo_snapshot_t todo = { 0 };
-	(void)net_service_get_todo_snapshot(&todo);
+	(void)sync_service_get_todo_snapshot(&todo);
 	lv_obj_t *area = titled_scroll_body(screen, "TODO", c_purple());
 
 	uint8_t shown = 0;
@@ -609,7 +673,7 @@ static void render_wifi_page(lv_obj_t *screen)
 	app_net_status_t net = { 0 };
 	app_todo_snapshot_t todo = { 0 };
 	(void)net_service_get_status(&net);
-	(void)net_service_get_todo_snapshot(&todo);
+	(void)sync_service_get_todo_snapshot(&todo);
 
 	box(screen, 0, 0, UI_TILE_W, UI_TILE_H, net.wifi_connected ? c_teal() : c_gray());
 	label(screen, "WIFI", UI_FONT_24, c_white(), 2, 8, 116, 30, LV_TEXT_ALIGN_CENTER);
@@ -741,7 +805,7 @@ static void render_todo_settings(lv_obj_t *screen)
 static void render_todo_item(lv_obj_t *screen)
 {
 	app_todo_snapshot_t todo = { 0 };
-	(void)net_service_get_todo_snapshot(&todo);
+	(void)sync_service_get_todo_snapshot(&todo);
 	const app_todo_item_t *item = todo_item_at(&todo, s_todo_selected);
 	lv_obj_t *area = render_settings_area(screen, "TODO ITEM", c_purple());
 
@@ -761,7 +825,7 @@ static void render_todo_item(lv_obj_t *screen)
 static void render_todo_delete_confirm(lv_obj_t *screen)
 {
 	app_todo_snapshot_t todo = { 0 };
-	(void)net_service_get_todo_snapshot(&todo);
+	(void)sync_service_get_todo_snapshot(&todo);
 	const app_todo_item_t *item = todo_item_at(&todo, s_todo_selected);
 	lv_obj_t *area = render_settings_area(screen, "DELETE?", c_red());
 	char title[64];
@@ -816,7 +880,7 @@ static const char *ok_icon_for_view(void)
 	if (s_view == UI_VIEW_MAIN) {
 		if (s_main_page == UI_PAGE_TODO) {
 			app_todo_snapshot_t todo = { 0 };
-			(void)net_service_get_todo_snapshot(&todo);
+			(void)sync_service_get_todo_snapshot(&todo);
 			return s_todo_page_focus < todo_item_count(&todo) ? LV_SYMBOL_OK : LV_SYMBOL_SETTINGS;
 		}
 		return s_main_page == UI_PAGE_WIFI ? LV_SYMBOL_CLOSE : LV_SYMBOL_SETTINGS;
@@ -951,7 +1015,11 @@ static void enter_settings_for_page(void)
 static void play_voice_test(const app_audio_event_t *events, size_t count)
 {
 	for (size_t i = 0; i < count; i++) {
-		int ret = audio_service_play_event(events[i]);
+		app_bus_event_t event = {
+			.type = APP_BUS_EVENT_AUDIO_PLAY_REQUEST,
+		};
+		event.data.audio.event_id = events[i];
+		int ret = app_bus_publish(&event);
 		ESP_LOGI(TAG, "voice test event=%d ret=%d", (int)events[i], ret);
 	}
 }
@@ -1027,7 +1095,7 @@ static void update_low_clock_presence_runtime(void)
 				s_main_page = UI_PAGE_HOME;
 				s_low_clock_auto_entered = false;
 				s_dirty = true;
-				(void)net_service_request_report_event("welcome_played", NULL);
+				(void)publish_device_event("welcome_played", NULL);
 				ESP_LOGI(TAG, "exit low clock present_s=%" PRIi64 " threshold=%u healthy=%d fallback=%d",
 					 present_s,
 					 (unsigned)s_low_exit_present_s,
@@ -1055,7 +1123,7 @@ static void add_alarm(void)
 	s_alarm_count++;
 	s_view = UI_VIEW_ALARM_ITEM;
 	s_focus = 0;
-	save_settings();
+	save_alarm_settings();
 	ESP_LOGI(TAG, "alarm added count=%u", (unsigned)s_alarm_count);
 }
 
@@ -1069,7 +1137,7 @@ static void delete_last_alarm(void)
 	if (s_alarm_selected >= s_alarm_count) {
 		s_alarm_selected = s_alarm_count == 0U ? 0U : (uint8_t)(s_alarm_count - 1U);
 	}
-	save_settings();
+	save_alarm_settings();
 	ESP_LOGI(TAG, "alarm deleted count=%u", (unsigned)s_alarm_count);
 }
 
@@ -1090,7 +1158,7 @@ static void process_ok_in_settings(void)
 	if (s_view == UI_VIEW_ALARM_SETTINGS) {
 		if (s_focus == 0U) {
 			s_alarm_voice_on = !s_alarm_voice_on;
-			save_settings();
+			save_voice_settings();
 		} else if (s_focus == 1U) {
 			play_alarm_voice_test();
 		} else if (s_focus == 2U) {
@@ -1121,19 +1189,22 @@ static void process_ok_in_settings(void)
 		} else {
 			alarm->enabled = !alarm->enabled;
 		}
-		save_settings();
+		save_alarm_settings();
 		return;
 	}
 
 	if (s_view == UI_VIEW_TODO_SETTINGS) {
 		if (s_focus == 0U) {
-			int ret = net_service_request_todo_sync_now();
+			app_bus_event_t event = {
+				.type = APP_BUS_EVENT_TODO_SYNC_REQUEST,
+			};
+			int ret = app_bus_publish(&event);
 			ESP_LOGI(TAG, "todo sync requested ret=%d", ret);
 		} else if (s_focus == 1U) {
 			return;
 		} else if (s_focus == 2U) {
 			s_todo_voice_on = !s_todo_voice_on;
-			save_settings();
+			save_voice_settings();
 		} else if (s_focus == 3U) {
 			play_todo_voice_test();
 		}
@@ -1142,7 +1213,7 @@ static void process_ok_in_settings(void)
 
 	if (s_view == UI_VIEW_TODO_ITEM) {
 		app_todo_snapshot_t todo = { 0 };
-		(void)net_service_get_todo_snapshot(&todo);
+		(void)sync_service_get_todo_snapshot(&todo);
 		const app_todo_item_t *item = todo_item_at(&todo, s_todo_selected);
 		if (item == NULL) {
 			s_view = UI_VIEW_MAIN;
@@ -1150,7 +1221,7 @@ static void process_ok_in_settings(void)
 		}
 
 		if (s_focus == 0U) {
-			int ret = net_service_request_todo_set_done(item->id, !item->done);
+			int ret = publish_todo_action(APP_BUS_EVENT_TODO_COMPLETE_REQUEST, item->id);
 			ESP_LOGI(TAG, "todo toggle requested id=%s done=%d ret=%d", item->id, item->done ? 0 : 1, ret);
 			s_view = UI_VIEW_MAIN;
 			s_focus = 0;
@@ -1163,10 +1234,10 @@ static void process_ok_in_settings(void)
 
 	if (s_view == UI_VIEW_TODO_DELETE_CONFIRM) {
 		app_todo_snapshot_t todo = { 0 };
-		(void)net_service_get_todo_snapshot(&todo);
+		(void)sync_service_get_todo_snapshot(&todo);
 		const app_todo_item_t *item = todo_item_at(&todo, s_todo_selected);
 		if (s_focus == 0U && item != NULL) {
-			int ret = net_service_request_todo_delete(item->id);
+			int ret = publish_todo_action(APP_BUS_EVENT_TODO_DELETE_REQUEST, item->id);
 			ESP_LOGI(TAG, "todo delete requested id=%s ret=%d", item->id, ret);
 			s_view = UI_VIEW_MAIN;
 			s_focus = 0;
@@ -1180,7 +1251,7 @@ static void process_ok_in_settings(void)
 	if (s_view == UI_VIEW_ENV_SETTINGS) {
 		if (s_focus == 0U) {
 			s_env_voice_on = !s_env_voice_on;
-			save_settings();
+			save_voice_settings();
 		} else if (s_focus == 1U) {
 			play_env_voice_test();
 		} else if (s_focus == 2U) {
@@ -1188,13 +1259,11 @@ static void process_ok_in_settings(void)
 			for (size_t i = 0; i < sizeof(values); i++) {
 				if (s_env_sample_s == values[i]) {
 					s_env_sample_s = values[(i + 1U) % sizeof(values)];
-					(void)environment_service_set_sample_interval_s(s_env_sample_s);
 					save_settings();
 					return;
 				}
 			}
 			s_env_sample_s = 10;
-			(void)environment_service_set_sample_interval_s(s_env_sample_s);
 			save_settings();
 		} else if (s_focus == 3U) {
 			static const int16_t values[] = { 0, 5, 10, 15, 20 };
@@ -1282,7 +1351,7 @@ static void process_ok_in_settings(void)
 			save_settings();
 		} else {
 			s_env_alert_on = !s_env_alert_on;
-			save_settings();
+			save_voice_settings();
 		}
 		return;
 	}
@@ -1329,7 +1398,7 @@ static void process_key(size_t key_index)
 				}
 			} else if (s_main_page == UI_PAGE_TODO) {
 				app_todo_snapshot_t todo = { 0 };
-				(void)net_service_get_todo_snapshot(&todo);
+				(void)sync_service_get_todo_snapshot(&todo);
 				const uint8_t count = (uint8_t)(todo_item_count(&todo) + 1U);
 				if (count > 0U) {
 					s_todo_page_focus = (uint8_t)((s_todo_page_focus + 1U) % count);
@@ -1347,7 +1416,7 @@ static void process_key(size_t key_index)
 		} else {
 			if (s_main_page == UI_PAGE_TODO) {
 				app_todo_snapshot_t todo = { 0 };
-				(void)net_service_get_todo_snapshot(&todo);
+				(void)sync_service_get_todo_snapshot(&todo);
 				const uint8_t item_count = todo_item_count(&todo);
 				if (s_todo_page_focus < item_count) {
 					s_todo_selected = s_todo_page_focus;
@@ -1422,6 +1491,26 @@ static void ui_task(void *arg)
 	}
 }
 
+static void ui_model_handle_key_press(size_t key_index)
+{
+	if (s_key_queue == NULL) {
+		return;
+	}
+
+	if (xQueueSend(s_key_queue, &key_index, 0) != pdTRUE) {
+		ESP_LOGW(TAG, "key queue full key=%u", (unsigned)(key_index + 1U));
+	}
+}
+
+static void ui_bus_handler(const app_bus_event_t *event, void *ctx)
+{
+	(void)ctx;
+	if (event == NULL || event->type != APP_BUS_EVENT_INPUT_KEY_PRESSED) {
+		return;
+	}
+	ui_model_handle_key_press((size_t)event->data.input.key_index);
+}
+
 int ui_model_init(void)
 {
 	s_key_queue = xQueueCreate(12, sizeof(size_t));
@@ -1429,6 +1518,7 @@ int ui_model_init(void)
 		ESP_LOGE(TAG, "failed to create key queue");
 		return -1;
 	}
+	(void)app_bus_subscribe(APP_BUS_EVENT_INPUT_KEY_PRESSED, ui_bus_handler, NULL);
 
 	app_settings_t settings = { 0 };
 	settings_model_get(&settings);
@@ -1462,15 +1552,4 @@ int ui_model_stop(void)
 	}
 
 	return 0;
-}
-
-void ui_model_handle_key_press(size_t key_index)
-{
-	if (s_key_queue == NULL) {
-		return;
-	}
-
-	if (xQueueSend(s_key_queue, &key_index, 0) != pdTRUE) {
-		ESP_LOGW(TAG, "key queue full key=%u", (unsigned)(key_index + 1U));
-	}
 }

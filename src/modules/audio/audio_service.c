@@ -1,4 +1,5 @@
 #include "app_module.h"
+#include <app_bus.h>
 #include <audio_service.h>
 #include <hw_config.h>
 #include <module_common.h>
@@ -32,6 +33,8 @@ typedef struct {
 	const uint8_t *data;
 	const uint8_t *end;
 } app_audio_clip_t;
+
+static void audio_bus_handler(const app_bus_event_t *event, void *ctx);
 
 extern const uint8_t welcome_wav_start[] asm("_binary_welcome_wav_start");
 extern const uint8_t welcome_wav_end[] asm("_binary_welcome_wav_end");
@@ -317,6 +320,7 @@ int audio_service_init(void)
 		ESP_LOGE(TAG, "failed to create audio queue");
 		return -1;
 	}
+	(void)app_bus_subscribe(APP_BUS_EVENT_AUDIO_PLAY_REQUEST, audio_bus_handler, NULL);
 
 	ESP_LOGI(TAG, "init bclk=%d ws=%d dout=%d", APP_PIN_I2S_BCLK, APP_PIN_I2S_WS, APP_PIN_I2S_DOUT);
 	return 0;
@@ -377,14 +381,7 @@ static int audio_service_queue_event(app_audio_event_t event_id, const uint8_t *
 	return 0;
 }
 
-int audio_service_play_test_tone(uint32_t frequency_hz, uint32_t duration_ms)
-{
-	(void)frequency_hz;
-	(void)duration_ms;
-	return -1;
-}
-
-int audio_service_play_event(app_audio_event_t event_id)
+static int audio_service_play_event(app_audio_event_t event_id)
 {
 	const app_audio_clip_t *clip = audio_get_clip(event_id);
 	if (clip == NULL) {
@@ -394,22 +391,12 @@ int audio_service_play_event(app_audio_event_t event_id)
 	return audio_service_queue_event(event_id, clip->data, (size_t)(clip->end - clip->data));
 }
 
-bool audio_service_is_busy(void)
+static void audio_bus_handler(const app_bus_event_t *event, void *ctx)
 {
-	return s_audio_busy;
-}
-
-int audio_service_set_volume(uint8_t volume)
-{
-	if (volume > 10U) {
-		volume = 10U;
+	(void)ctx;
+	if (event == NULL || event->type != APP_BUS_EVENT_AUDIO_PLAY_REQUEST) {
+		return;
 	}
-
-	s_volume = volume;
-	return 0;
-}
-
-uint8_t audio_service_get_volume(void)
-{
-	return s_volume;
+	int ret = audio_service_play_event(event->data.audio.event_id);
+	ESP_LOGI(TAG, "bus play event=%d ret=%d", (int)event->data.audio.event_id, ret);
 }

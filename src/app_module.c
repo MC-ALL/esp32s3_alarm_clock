@@ -8,6 +8,7 @@ static const char *TAG = "app_module";
 static const struct app_module_desc MODULES[] = {
 	{ .name = "fault_state", .init = fault_state_init, .start = fault_state_start, .stop = fault_state_stop },
 	{ .name = "persistence_broker", .init = persistence_broker_init, .start = persistence_broker_start, .stop = persistence_broker_stop },
+	{ .name = "app_bus", .init = app_bus_init, .start = app_bus_start, .stop = app_bus_stop },
 	{ .name = "settings_model", .init = settings_model_init, .start = settings_model_start, .stop = settings_model_stop },
 	{ .name = "timebase_service", .init = timebase_service_init, .start = timebase_service_start, .stop = timebase_service_stop },
 	{ .name = "display_service", .init = display_service_init, .start = display_service_start, .stop = display_service_stop },
@@ -18,6 +19,7 @@ static const struct app_module_desc MODULES[] = {
 	{ .name = "presence_service", .init = presence_service_init, .start = presence_service_start, .stop = presence_service_stop },
 	{ .name = "audio_service", .init = audio_service_init, .start = audio_service_start, .stop = audio_service_stop },
 	{ .name = "net_service", .init = net_service_init, .start = net_service_start, .stop = net_service_stop },
+	{ .name = "sync_service", .init = sync_service_init, .start = sync_service_start, .stop = sync_service_stop },
 	{ .name = "reminder_service", .init = reminder_service_init, .start = reminder_service_start, .stop = reminder_service_stop },
 	{ .name = "lifecycle_service", .init = lifecycle_service_init, .start = lifecycle_service_start, .stop = lifecycle_service_stop },
 };

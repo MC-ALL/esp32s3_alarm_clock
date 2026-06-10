@@ -1,7 +1,9 @@
 #include "app_module.h"
+#include <app_bus.h>
 #include <environment_service.h>
 #include <hw_config.h>
 #include <module_common.h>
+#include <settings_model.h>
 
 #include <dht.h>
 #include <driver/gpio.h>
@@ -39,6 +41,33 @@ typedef struct {
 } dht11_provider_cache_t;
 
 static dht11_provider_cache_t s_dht11_cache;
+
+static int environment_set_sample_interval_s(uint32_t seconds)
+{
+	if (seconds < 2U) {
+		seconds = 2U;
+	} else if (seconds > 30U) {
+		seconds = 30U;
+	}
+
+	if (s_sample_interval_s == seconds) {
+		return 0;
+	}
+
+	s_sample_interval_s = seconds;
+	ESP_LOGI(TAG, "sample interval changed sample_s=%" PRIu32, s_sample_interval_s);
+	return 0;
+}
+
+static void environment_bus_handler(const app_bus_event_t *event, void *ctx)
+{
+	(void)ctx;
+	if (event == NULL ||
+	    (event->type != APP_BUS_EVENT_SETTINGS_CHANGED && event->type != APP_BUS_EVENT_WEB_CONFIG_UPDATED)) {
+		return;
+	}
+	(void)environment_set_sample_interval_s(event->data.settings.settings.env_sample_s);
+}
 
 static int dht11_provider_init(void)
 {
@@ -246,7 +275,9 @@ int environment_service_init(void)
 
 	s_snapshot = (app_environment_snapshot_t){ 0 };
 	s_dht11_fail_streak = 0;
-	s_sample_interval_s = 2;
+	app_settings_t settings = { 0 };
+	settings_model_get(&settings);
+	(void)environment_set_sample_interval_s(settings.env_sample_s);
 	s_snapshot_mutex = xSemaphoreCreateMutex();
 	if (s_snapshot_mutex == NULL) {
 		ESP_LOGE(TAG, "failed to create snapshot mutex");
@@ -257,6 +288,8 @@ int environment_service_init(void)
 		s_i2c_bus = NULL;
 		return -1;
 	}
+	(void)app_bus_subscribe(APP_BUS_EVENT_SETTINGS_CHANGED, environment_bus_handler, NULL);
+	(void)app_bus_subscribe(APP_BUS_EVENT_WEB_CONFIG_UPDATED, environment_bus_handler, NULL);
 
 	ESP_LOGI(TAG,
 		 "init bh1750 sda=%d scl=%d addr=0x%02X temp_humi=%s gpio=%d "
@@ -328,21 +361,4 @@ bool environment_service_get_snapshot(app_environment_snapshot_t *out_snapshot)
 uint32_t environment_service_get_sample_interval_s(void)
 {
 	return s_sample_interval_s;
-}
-
-int environment_service_set_sample_interval_s(uint32_t seconds)
-{
-	if (seconds < 2U) {
-		seconds = 2U;
-	} else if (seconds > 30U) {
-		seconds = 30U;
-	}
-
-	if (s_sample_interval_s == seconds) {
-		return 0;
-	}
-
-	s_sample_interval_s = seconds;
-	ESP_LOGI(TAG, "sample interval changed sample_s=%" PRIu32, s_sample_interval_s);
-	return 0;
 }

@@ -1,8 +1,8 @@
 #include "app_module.h"
+#include <app_bus.h>
 #include <hw_config.h>
 #include <input_service.h>
 #include <module_common.h>
-#include <ui_model.h>
 
 #include <driver/gpio.h>
 #include <esp_err.h>
@@ -86,7 +86,12 @@ static void input_task(void *arg)
 
 			s_key_pressed_latched[key_index] = true;
 			ESP_LOGI(TAG, "key%u pressed", (unsigned)(key_index + 1));
-			ui_model_handle_key_press((size_t)key_index);
+			app_bus_event_t event = {
+				.type = APP_BUS_EVENT_INPUT_KEY_PRESSED,
+				.timestamp_us = now_us,
+			};
+			event.data.input.key_index = (uint8_t)key_index;
+			(void)app_bus_publish(&event);
 		} else if (s_key_pressed_latched[key_index]) {
 			s_key_pressed_latched[key_index] = false;
 			ESP_LOGI(TAG, "key%u released", (unsigned)(key_index + 1));

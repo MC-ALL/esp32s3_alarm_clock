@@ -49,6 +49,7 @@
 
 - `fault_state`
 - `persistence_broker`
+- `app_bus`
 - `settings_model`
 - `timebase_service`
 - `display_service`
@@ -59,6 +60,7 @@
 - `presence_service`
 - `audio_service`
 - `net_service`
+- `sync_service`
 - `reminder_service`
 - `lifecycle_service`
 
@@ -73,15 +75,43 @@
 - `src/modules/sensing/`
   - 负责环境采样和人体存在检测
 - `src/modules/connectivity/`
-  - 负责 Wi-Fi、时间同步、Todo 同步
+  - 负责 Wi-Fi、IP 状态、SNTP 时间同步，以及通用 HTTP 请求能力
+- `src/modules/sync/`
+  - 负责 Web 配置拉取、Todo 同步、设备状态上报、设备事件上报和本地配置写回
 - `src/modules/audio/`
   - 负责提示音与语音播放
 - `src/modules/config/`
   - 负责参数模型与持久化
 - `src/modules/core/`
-  - 负责故障状态、生命周期和时间基线辅助模块
+  - 负责故障状态、生命周期、中心事件总线和时间基线辅助模块
 - `src/modules/reminder/`
   - 负责提醒触发逻辑
+
+### 3.3 模块边界与中心事件总线
+
+当前固件把网络连接和业务同步拆分为两个模块：
+
+- `net_service` 只维护 Wi-Fi/IP/SNTP 状态，并提供 `net_service_http_request()` 作为低层 HTTP 能力。
+- `sync_service` 拥有 Web 侧业务协议、Todo 缓存、配置版本、状态上报、事件上报、写回重试和退避策略。
+
+业务模块之间不直接调用彼此的 Web 同步接口。需要跨模块传播的业务动作通过 `app_bus` 发布，例如：
+
+- UI 发布 Todo 完成/删除请求
+- UI 或提醒模块发布闹钟/语音配置已变更
+- 提醒模块发布 `alarm_triggered`、`env_alert_triggered`、`rest_reminder_triggered` 等设备事件
+- 输入模块发布按键事件，UI 订阅后进入自己的按键队列
+- UI 和提醒模块发布语音播放请求，音频模块订阅后进入自己的播放队列
+- UI 或 Web 更新运行设置后发布设置变更，环境模块订阅后自行调整采样周期
+- `sync_service` 订阅这些事件，并异步转成对应的 Web 请求
+
+这样 `ui_model`、`reminder_service`、`input_service` 等业务/交互模块只表达本地动作，具体 owner 模块通过注册回调消费事件；`sync_service` 负责同步可靠性，`net_service` 只负责网络能力。
+
+`sync_service` 对网络失败做集中处理：
+
+- 配置拉取和状态上报使用指数退避，避免离线时持续打满请求。
+- 设备事件上报失败后进入延迟重试队列。
+- Todo 完成/删除、闹钟写回、语音设置写回失败后进入延迟重试队列。
+- 状态型写回请求会用最新配置覆盖旧的待重试配置，避免离线期间重放过期设置。
 
 ---
 
@@ -230,7 +260,7 @@
 
 运行时流程为：
 
-1. 其他模块触发音频事件
+1. 其他模块通过 `app_bus` 发布语音播放请求
 2. `audio_service` 根据事件找到对应 `WAV`
 3. 从 `WAV` 中提取 `PCM` 数据
 4. 通过 `I2S` 写入 `MAX98357A`
@@ -290,23 +320,23 @@
 
 ### 8.3 Todo 同步
 
-Todo 同步也由 `net_service` 负责。
+Todo 同步由 `sync_service` 负责。
 
 当前实现方式为：
 
-- 通过 `HTTP GET` 从 Web 端拉取 Todo 数据
-- 使用轻量级字符串解析方式提取 `items`
-- 成功后更新本地 `Todo` 缓存
-- 失败时保留旧缓存并记录错误信息
+- 通过 `net_service_http_request()` 使用 `HTTP GET` 从 Web 端拉取设备配置
+- 从设备配置中解析 active Todo、闹钟配置、语音配置和配置版本
+- 成功后更新本地 Todo 缓存和运行配置
+- 失败时保留旧缓存，记录错误信息，并进入指数退避
 
 此外，当前还支持：
 
-- 手动触发 Todo 同步
-- 标记 Todo 完成 / 未完成
-- 删除 Todo
+- UI 通过 `app_bus` 手动触发一次同步
+- UI 通过 `app_bus` 请求 Todo 完成
+- UI 通过 `app_bus` 请求 Todo 删除
 - 把 Todo 缓存写入本地 `NVS`
 
-其中，设备端对 Todo 的完成 / 删除会直接发起 `HTTP PUT` 或 `HTTP DELETE` 请求，先更新 Web 端 `todos.json`，成功后再更新本地缓存状态。
+其中，设备端对 Todo 的完成 / 删除不会由 UI 直接访问网络；`sync_service` 订阅对应事件后发起 Web 请求，成功后再更新本地缓存状态，失败则进入延迟重试队列。
 
 因此，当前 Todo 链路已经不是单纯“只读展示”，而是具备基础双向操作能力。
 

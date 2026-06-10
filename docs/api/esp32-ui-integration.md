@@ -43,10 +43,7 @@
 
 ### 3.1 按键输入
 
-按键最终由：
-- `ui_model_handle_key_press(size_t key_index)`
-
-消费。
+按键由 `input_service` 采集并通过 `app_bus` 发布 `APP_BUS_EVENT_INPUT_KEY_PRESSED`，`ui_model` 订阅后进入自己的按键队列。
 
 当前仍以单次按键事件为主，不区分长按和连按。
 
@@ -74,14 +71,14 @@
 ### 3.5 Todo 输入
 
 通过：
-- `net_service_get_todo_snapshot()`
+- `sync_service_get_todo_snapshot()`
 
 提供当前本地未完成 Todo 快照。
 
 ### 3.6 配置快照输入
 
 通过：
-- `net_service_get_device_config_snapshot()`
+- `sync_service_get_device_config_snapshot()`
 
 提供最近一次从 Web 拉取到的配置快照信息，包括：
 - `config_version`
@@ -93,13 +90,11 @@
 
 ### 4.1 Todo 动作
 
-当前接口：
+当前通过 `app_bus` 发布：
 
-```c
-int net_service_request_todo_sync_now(void);
-int net_service_request_todo_set_done(const char *todo_id, bool done);
-int net_service_request_todo_delete(const char *todo_id);
-```
+- `APP_BUS_EVENT_TODO_SYNC_REQUEST`
+- `APP_BUS_EVENT_TODO_COMPLETE_REQUEST`
+- `APP_BUS_EVENT_TODO_DELETE_REQUEST`
 
 当前语义：
 - 完成 Todo：请求 Web 将该项移入 completed archive
@@ -108,24 +103,20 @@ int net_service_request_todo_delete(const char *todo_id);
 
 ### 4.2 配置回写动作
 
-当前接口：
+当前通过 `app_bus` 发布：
 
-```c
-int net_service_request_push_alarm_settings(const app_settings_t *settings);
-int net_service_request_push_voice_settings(const app_settings_t *settings);
-```
+- `APP_BUS_EVENT_ALARM_SETTINGS_CHANGED`
+- `APP_BUS_EVENT_VOICE_SETTINGS_CHANGED`
+- `APP_BUS_EVENT_SETTINGS_CHANGED`
 
 当前语义：
 - 本地修改闹钟后，立即请求 Web 更新闹钟真源
 - 本地修改语音设置后，立即请求 Web 更新语音设置真源
+- 本地或 Web 更新环境采样周期等运行设置后，由对应 owner 模块订阅并自行应用
 
 ### 4.3 事件上报动作
 
-当前接口：
-
-```c
-int net_service_request_report_event(const char *event_type, const char *todo_id);
-```
+当前通过 `app_bus` 发布 `APP_BUS_EVENT_DEVICE_EVENT`，由 `sync_service` 统一上报。
 
 当前已接入或已预留的事件类型包括：
 - `todo_completed`
@@ -143,6 +134,8 @@ int net_service_request_report_event(const char *event_type, const char *todo_id
 ```c
 int net_service_request_connect_now(void);
 ```
+
+Web 同步动作不再暴露为 `net_service_request_*` 接口；`net_service` 只保留网络状态、立即重连和通用 HTTP 能力。
 
 ## 5. Web 控制中心对接重点
 
