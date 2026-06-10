@@ -49,6 +49,7 @@ idf_component_register(
     "modules/reminder/reminder_service.c"
     "modules/reminder/reminder_todo_runtime.c"
     "modules/audio/audio_assets.c"
+    "modules/audio/audio_pcm_player.c"
     "modules/audio/audio_service.c"
   INCLUDE_DIRS
     "../include"
