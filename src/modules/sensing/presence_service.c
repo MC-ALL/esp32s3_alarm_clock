@@ -2,6 +2,7 @@
 #include <hw_config.h>
 #include <presence_ld2410.h>
 #include <presence_service.h>
+#include <presence_status_runtime.h>
 #include <presence_uart.h>
 #include <module_common.h>
 
@@ -17,29 +18,16 @@
 static const char *TAG = "presence";
 static QueueHandle_t s_uart_event_queue;
 static TaskHandle_t s_presence_task;
-static bool s_present_hint;
 static int64_t s_last_uart_rx_us;
 static int64_t s_last_uart_log_us;
 static uint32_t s_uart_rx_bytes;
 static presence_ld2410_parser_t s_ld2410_parser;
-static app_presence_status_t s_status;
-static portMUX_TYPE s_presence_lock = portMUX_INITIALIZER_UNLOCKED;
+static presence_status_runtime_t s_status_runtime;
 
 static void presence_refresh_derived_status(int64_t now_us)
 {
 	const bool out_hint = gpio_get_level(APP_PIN_LD2410_OUT) != 0;
-
-	taskENTER_CRITICAL(&s_presence_lock);
-	s_status.out_pin_present = out_hint;
-	s_status.rx_bytes = s_uart_rx_bytes;
-	s_status.updated_at_us = now_us;
-
-	const bool frame_recent = s_status.frame_valid && ((now_us - s_status.last_frame_us) < 1500000);
-	s_status.radar_healthy = frame_recent;
-	s_status.using_out_fallback = !frame_recent;
-	s_status.detected = frame_recent ? (s_status.target_state != 0U) : out_hint;
-	s_present_hint = s_status.detected;
-	taskEXIT_CRITICAL(&s_presence_lock);
+	presence_status_runtime_refresh(&s_status_runtime, out_hint, s_uart_rx_bytes, now_us);
 }
 
 static void presence_apply_ld2410_frame(const presence_ld2410_frame_t *frame, void *ctx)
@@ -50,20 +38,7 @@ static void presence_apply_ld2410_frame(const presence_ld2410_frame_t *frame, vo
 	}
 
 	const int64_t now_us = esp_timer_get_time();
-
-	taskENTER_CRITICAL(&s_presence_lock);
-	s_status.frame_valid = true;
-	s_status.target_state = frame->target_state;
-	s_status.moving_distance_cm = frame->moving_distance_cm;
-	s_status.moving_energy = frame->moving_energy;
-	s_status.stationary_distance_cm = frame->stationary_distance_cm;
-	s_status.stationary_energy = frame->stationary_energy;
-	s_status.detection_distance_cm = frame->detection_distance_cm;
-	s_status.max_moving_gate = frame->max_moving_gate;
-	s_status.max_stationary_gate = frame->max_stationary_gate;
-	s_status.last_frame_us = now_us;
-	taskEXIT_CRITICAL(&s_presence_lock);
-
+	presence_status_runtime_apply_frame(&s_status_runtime, frame, now_us);
 	presence_refresh_derived_status(now_us);
 }
 
@@ -84,7 +59,7 @@ static void presence_task(void *arg)
 	(void)arg;
 
 	uart_event_t event;
-	bool last_detected = s_present_hint;
+	bool last_detected = presence_status_runtime_present_hint(&s_status_runtime);
 
 	for (;;) {
 		if (xQueueReceive(s_uart_event_queue, &event, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -144,16 +119,12 @@ int presence_service_init(void)
 		return ret;
 	}
 
-	s_present_hint = gpio_get_level(APP_PIN_LD2410_OUT) != 0;
+	const bool out_pin_present = gpio_get_level(APP_PIN_LD2410_OUT) != 0;
 	s_last_uart_rx_us = 0;
 	s_last_uart_log_us = 0;
 	s_uart_rx_bytes = 0;
 	presence_ld2410_parser_reset(&s_ld2410_parser);
-	s_status = (app_presence_status_t){
-		.detected = s_present_hint,
-		.out_pin_present = s_present_hint,
-		.using_out_fallback = true,
-	};
+	presence_status_runtime_init(&s_status_runtime, out_pin_present);
 	ESP_LOGI(TAG, "init uart=%d rx=%d tx=%d out=%d baud=%d",
 		UART_NUM_1, APP_PIN_LD2410_UART_RX, APP_PIN_LD2410_UART_TX,
 		APP_PIN_LD2410_OUT, APP_LD2410_UART_BAUDRATE);
@@ -189,7 +160,7 @@ int presence_service_stop(void)
 
 bool presence_service_is_present_hint(void)
 {
-	return s_present_hint;
+	return presence_status_runtime_present_hint(&s_status_runtime);
 }
 
 uint32_t presence_service_get_rx_bytes(void)
@@ -205,9 +176,5 @@ bool presence_service_get_status(app_presence_status_t *out_status)
 
 	const int64_t now_us = esp_timer_get_time();
 	presence_refresh_derived_status(now_us);
-
-	taskENTER_CRITICAL(&s_presence_lock);
-	*out_status = s_status;
-	taskEXIT_CRITICAL(&s_presence_lock);
-	return true;
+	return presence_status_runtime_get(&s_status_runtime, out_status);
 }
