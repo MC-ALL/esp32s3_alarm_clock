@@ -3,14 +3,13 @@
 #include <app_config.h>
 #include <module_common.h>
 #include <settings_model.h>
+#include <sync_bus_mapper.h>
 #include <sync_config_pull.h>
 #include <sync_event_reporter.h>
+#include <sync_request_executor.h>
 #include <sync_request_retry.h>
-#include <sync_settings_push.h>
 #include <sync_service.h>
-#include <sync_status_reporter.h>
 #include <sync_todo_cache.h>
-#include <sync_todo_ops.h>
 
 #include <esp_log.h>
 #include <esp_timer.h>
@@ -74,25 +73,7 @@ static void sync_bus_handler(const app_bus_event_t *event, void *ctx)
 	}
 
 	sync_request_t request = { 0 };
-	if (event->type == APP_BUS_EVENT_TODO_SYNC_REQUEST) {
-		request.type = SYNC_REQUEST_PULL_CONFIG;
-	} else if (event->type == APP_BUS_EVENT_TODO_COMPLETE_REQUEST) {
-		request.type = SYNC_REQUEST_COMPLETE_TODO;
-		strlcpy(request.todo_id, event->data.todo.todo_id, sizeof(request.todo_id));
-	} else if (event->type == APP_BUS_EVENT_TODO_DELETE_REQUEST) {
-		request.type = SYNC_REQUEST_DELETE_TODO;
-		strlcpy(request.todo_id, event->data.todo.todo_id, sizeof(request.todo_id));
-	} else if (event->type == APP_BUS_EVENT_ALARM_SETTINGS_CHANGED) {
-		request.type = SYNC_REQUEST_PUSH_ALARMS;
-		request.settings = event->data.settings.settings;
-	} else if (event->type == APP_BUS_EVENT_VOICE_SETTINGS_CHANGED) {
-		request.type = SYNC_REQUEST_PUSH_VOICE;
-		request.settings = event->data.settings.settings;
-	} else if (event->type == APP_BUS_EVENT_DEVICE_EVENT) {
-		request.type = SYNC_REQUEST_REPORT_EVENT;
-		strlcpy(request.event_type, event->data.device_event.event_type, sizeof(request.event_type));
-		strlcpy(request.todo_id, event->data.device_event.todo_id, sizeof(request.todo_id));
-	} else {
+	if (!sync_bus_mapper_event_to_request(event, &request)) {
 		return;
 	}
 	sync_queue_request(&request);
@@ -124,36 +105,12 @@ static void sync_status_timer_cb(void *arg)
 
 static int sync_execute_request(const sync_request_t *request)
 {
-	if (request == NULL) {
-		return -1;
-	}
-	if (request->type == SYNC_REQUEST_PULL_CONFIG) {
-		sync_config_pull_once(&s_todo_snapshot, &s_device_config_snapshot);
-		return 0;
-	}
-	if (request->type == SYNC_REQUEST_REPORT_STATUS) {
-		sync_status_reporter_report_once();
-		return 0;
-	}
-	if (request->type == SYNC_REQUEST_COMPLETE_TODO) {
-		return sync_todo_ops_complete_once(&s_todo_snapshot, request->todo_id);
-	}
-	if (request->type == SYNC_REQUEST_DELETE_TODO) {
-		return sync_todo_ops_delete_once(&s_todo_snapshot, request->todo_id);
-	}
-	if (request->type == SYNC_REQUEST_PUSH_ALARMS) {
-		return sync_settings_push_alarms_once(&s_device_config_snapshot, &request->settings,
-						      sync_handle_config_conflict, NULL);
-	}
-	if (request->type == SYNC_REQUEST_PUSH_VOICE) {
-		return sync_settings_push_voice_once(&s_device_config_snapshot, &request->settings,
-						     sync_handle_config_conflict, NULL);
-	}
-	if (request->type == SYNC_REQUEST_REPORT_EVENT) {
-		sync_event_reporter_report_once(request->event_type, request->todo_id);
-		return 0;
-	}
-	return -1;
+	const sync_request_executor_t executor = {
+		.todo_snapshot = &s_todo_snapshot,
+		.device_config_snapshot = &s_device_config_snapshot,
+		.on_config_conflict = sync_handle_config_conflict,
+	};
+	return sync_request_executor_execute(&executor, request);
 }
 
 static void sync_task(void *arg)
