@@ -17,6 +17,8 @@ idf_component_register(
     "modules/sensing/presence_service.c"
     "modules/connectivity/net_service.c"
     "modules/sync/sync_service.c"
+    "modules/sync/sync_protocol.c"
+    "modules/sync/cJSON.c"
     "modules/reminder/reminder_service.c"
     "modules/audio/audio_service.c"
   INCLUDE_DIRS

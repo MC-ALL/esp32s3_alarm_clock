@@ -229,6 +229,6 @@ Todo 页面当前支持：
 1. 当前系统主界面已经不是旧文档中的 `SETTINGS / NETWORK / POWER` 结构。
 2. Todo 编辑仍依赖外部 Web 页面，设备端不负责文本录入。
 3. `DHT11` 当前仍然存在一定稳定性问题。
-4. 当前 Todo 解析为轻量实现，后续仍可增强。
+4. 当前 Todo/配置 JSON 解析已集中到 `sync_protocol`，后续仍可替换为更完整的 cJSON 组件实现。
 5. 当前系统重点是功能主链打通，不以产品化完整度为目标。
 6. 后续 Web 控制中心、配置快照、状态上报与事件上报扩展方案，见 `docs/plans/2026-06-09-web-device-control-center-design.md`。

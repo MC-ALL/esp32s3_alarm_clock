@@ -7,8 +7,8 @@
 #include <presence_service.h>
 #include <settings_model.h>
 #include <sync_service.h>
+#include <sync_protocol.h>
 
-#include <ctype.h>
 #include <esp_err.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
@@ -121,236 +121,6 @@ static void sync_format_now_iso(char *out, size_t out_size)
 	time(&now);
 	localtime_r(&now, &timeinfo);
 	(void)strftime(out, out_size, "%Y-%m-%dT%H:%M:%S%z", &timeinfo);
-}
-
-static const char *sync_find_json_key(const char *json, const char *key)
-{
-	static char pattern[32];
-	(void)snprintf(pattern, sizeof(pattern), "\"%s\"", key);
-	return strstr(json, pattern);
-}
-
-static bool sync_parse_json_string(const char *json, const char *key, char *out, size_t out_size)
-{
-	const char *p = sync_find_json_key(json, key);
-	if (p == NULL) {
-		return false;
-	}
-	p = strchr(p, ':');
-	if (p == NULL) {
-		return false;
-	}
-	p++;
-	while (*p != '\0' && isspace((unsigned char)*p)) {
-		p++;
-	}
-	if (*p != '"') {
-		return false;
-	}
-	p++;
-	const char *end = strchr(p, '"');
-	if (end == NULL) {
-		return false;
-	}
-	size_t len = (size_t)(end - p);
-	if (len >= out_size) {
-		len = out_size - 1U;
-	}
-	memcpy(out, p, len);
-	out[len] = '\0';
-	return true;
-}
-
-static bool sync_parse_json_bool(const char *json, const char *key, bool *out)
-{
-	const char *p = sync_find_json_key(json, key);
-	if (p == NULL || out == NULL) {
-		return false;
-	}
-	p = strchr(p, ':');
-	if (p == NULL) {
-		return false;
-	}
-	p++;
-	while (*p != '\0' && isspace((unsigned char)*p)) {
-		p++;
-	}
-	if (strncmp(p, "true", 4) == 0) {
-		*out = true;
-		return true;
-	}
-	if (strncmp(p, "false", 5) == 0) {
-		*out = false;
-		return true;
-	}
-	return false;
-}
-
-static bool sync_parse_json_uint32(const char *json, const char *key, uint32_t *out)
-{
-	const char *p = sync_find_json_key(json, key);
-	if (p == NULL || out == NULL) {
-		return false;
-	}
-	p = strchr(p, ':');
-	if (p == NULL) {
-		return false;
-	}
-	p++;
-	while (*p != '\0' && isspace((unsigned char)*p)) {
-		p++;
-	}
-	char *end = NULL;
-	unsigned long value = strtoul(p, &end, 10);
-	if (end == p) {
-		return false;
-	}
-	*out = (uint32_t)value;
-	return true;
-}
-
-static bool sync_parse_todo_items(const char *json, app_todo_snapshot_t *snapshot)
-{
-	const char *items = strstr(json, "\"todos_active\"");
-	if (items == NULL) {
-		items = strstr(json, "\"items\"");
-	}
-	if (items == NULL) {
-		return false;
-	}
-	const char *p = strchr(items, '[');
-	if (p == NULL) {
-		return false;
-	}
-	p++;
-	snapshot->count = 0;
-
-	while (*p != '\0' && snapshot->count < APP_TODO_MAX_ITEMS) {
-		const char *obj_start = strchr(p, '{');
-		if (obj_start == NULL) {
-			break;
-		}
-		const char *obj_end = strchr(obj_start, '}');
-		if (obj_end == NULL) {
-			return false;
-		}
-		char obj_buf[256];
-		size_t len = (size_t)(obj_end - obj_start + 1U);
-		if (len >= sizeof(obj_buf)) {
-			len = sizeof(obj_buf) - 1U;
-		}
-		memcpy(obj_buf, obj_start, len);
-		obj_buf[len] = '\0';
-
-		app_todo_item_t *item = &snapshot->items[snapshot->count];
-		if (!sync_parse_json_string(obj_buf, "id", item->id, sizeof(item->id))) {
-			break;
-		}
-		if (!sync_parse_json_string(obj_buf, "text", item->text, sizeof(item->text))) {
-			break;
-		}
-		(void)sync_parse_json_bool(obj_buf, "done", &item->done);
-		(void)sync_parse_json_string(obj_buf, "updated_at", item->updated_at, sizeof(item->updated_at));
-		snapshot->count++;
-		p = obj_end + 1;
-	}
-
-	return true;
-}
-
-static bool sync_parse_voice_settings(const char *json, app_settings_t *settings)
-{
-	const char *voice = strstr(json, "\"voice_settings\"");
-	if (voice == NULL || settings == NULL) {
-		return false;
-	}
-	const char *obj_start = strchr(voice, '{');
-	const char *obj_end = obj_start != NULL ? strchr(obj_start, '}') : NULL;
-	if (obj_start == NULL || obj_end == NULL) {
-		return false;
-	}
-	char obj_buf[256];
-	size_t len = (size_t)(obj_end - obj_start + 1U);
-	if (len >= sizeof(obj_buf)) {
-		len = sizeof(obj_buf) - 1U;
-	}
-	memcpy(obj_buf, obj_start, len);
-	obj_buf[len] = '\0';
-	(void)sync_parse_json_bool(obj_buf, "todo_voice_on", &settings->todo_voice_on);
-	(void)sync_parse_json_bool(obj_buf, "alarm_voice_on", &settings->alarm_voice_on);
-	(void)sync_parse_json_bool(obj_buf, "env_voice_on", &settings->env_voice_on);
-	(void)sync_parse_json_bool(obj_buf, "env_alert_on", &settings->env_alert_on);
-	(void)sync_parse_json_bool(obj_buf, "home_hour_chime_on", &settings->home_hour_chime_on);
-	return true;
-}
-
-static bool sync_parse_alarm_items(const char *json, app_settings_t *settings)
-{
-	const char *alarms = strstr(json, "\"alarms\"");
-	if (alarms == NULL || settings == NULL) {
-		return false;
-	}
-	const char *p = strchr(alarms, '[');
-	if (p == NULL) {
-		return false;
-	}
-	p++;
-	settings->alarm_count = 0;
-
-	while (*p != '\0' && settings->alarm_count < APP_SETTINGS_MAX_ALARMS) {
-		const char *obj_start = strchr(p, '{');
-		if (obj_start == NULL) {
-			break;
-		}
-		const char *obj_end = strchr(obj_start, '}');
-		if (obj_end == NULL) {
-			return false;
-		}
-		char obj_buf[256];
-		size_t len = (size_t)(obj_end - obj_start + 1U);
-		if (len >= sizeof(obj_buf)) {
-			len = sizeof(obj_buf) - 1U;
-		}
-		memcpy(obj_buf, obj_start, len);
-		obj_buf[len] = '\0';
-
-		app_alarm_setting_t *alarm = &settings->alarms[settings->alarm_count];
-		uint32_t hour = 0;
-		uint32_t minute = 0;
-		if (!sync_parse_json_uint32(obj_buf, "hour", &hour) ||
-		    !sync_parse_json_uint32(obj_buf, "minute", &minute)) {
-			break;
-		}
-		alarm->hour = (uint8_t)(hour % 24U);
-		alarm->minute = (uint8_t)(minute % 60U);
-		(void)sync_parse_json_bool(obj_buf, "repeat", &alarm->repeat);
-		(void)sync_parse_json_bool(obj_buf, "enabled", &alarm->enabled);
-		(void)sync_parse_json_bool(obj_buf, "voice", &alarm->voice);
-		settings->alarm_count++;
-		p = obj_end + 1;
-	}
-
-	return true;
-}
-
-static bool sync_parse_device_config(const char *json, app_device_config_snapshot_t *snapshot,
-				     app_todo_snapshot_t *todo_snapshot)
-{
-	if (json == NULL || snapshot == NULL || todo_snapshot == NULL) {
-		return false;
-	}
-
-	app_settings_t settings = { 0 };
-	settings_model_get(&settings);
-	(void)sync_parse_json_uint32(json, "config_version", &snapshot->config_version);
-	(void)sync_parse_json_string(json, "updated_at", snapshot->updated_at, sizeof(snapshot->updated_at));
-	(void)sync_parse_voice_settings(json, &settings);
-	(void)sync_parse_alarm_items(json, &settings);
-	if (!sync_parse_todo_items(json, todo_snapshot)) {
-		return false;
-	}
-	snapshot->settings = settings;
-	return true;
 }
 
 static void sync_todo_cache_sanitize(app_todo_snapshot_t *snapshot)
@@ -523,14 +293,15 @@ static void sync_pull_config_once(void)
 
 	int status = 0;
 	int ret = sync_http_request("GET", APP_DEVICE_CONFIG_WEB_PATH, NULL, body, BODY_CAP, &status);
-	if (ret == 0 && status == 200 && sync_parse_device_config(body, &next_config, next_snapshot)) {
+	app_settings_t current_settings = { 0 };
+	settings_model_get(&current_settings);
+	if (ret == 0 && status == 200 &&
+	    sync_protocol_parse_device_config(body, &current_settings, &next_config, next_snapshot)) {
 		next_snapshot->sync_ok = true;
 		next_snapshot->sync_in_progress = false;
 		next_snapshot->last_error[0] = '\0';
 		s_todo_snapshot = *next_snapshot;
 
-		app_settings_t current_settings = { 0 };
-		settings_model_get(&current_settings);
 		s_device_config_snapshot = next_config;
 		if (memcmp(&current_settings, &s_device_config_snapshot.settings, sizeof(current_settings)) != 0) {
 			(void)settings_model_set(&s_device_config_snapshot.settings);
@@ -574,16 +345,16 @@ static void sync_report_status_once(void)
 	(void)presence_service_get_status(&presence);
 	sync_format_now_iso(sent_at, sizeof(sent_at));
 
-	char body[256];
-	(void)snprintf(body, sizeof(body),
-		       "{\"device_id\":\"clock-001\",\"sent_at\":\"%s\",\"online\":true,\"temperature_c\":%.1f,"
-		       "\"humidity_percent\":%.1f,\"lux\":%.1f,\"presence_detected\":%s}",
-		       sent_at, env.temperature_c, env.humidity_percent, env.lux,
-		       presence.detected ? "true" : "false");
+	char *body = sync_protocol_build_status_report(sent_at, &env, &presence);
+	if (body == NULL) {
+		sync_publish_error("status report oom");
+		return;
+	}
 
 	char response[64] = { 0 };
 	int status = 0;
 	int ret = sync_http_request("POST", APP_DEVICE_STATUS_WEB_PATH, body, response, sizeof(response), &status);
+	free(body);
 	if (ret == 0 && status == 200) {
 		s_status_failures = 0;
 		s_status_backoff_until_us = 0;
@@ -609,24 +380,15 @@ static int sync_report_event_http(const char *event_type, const char *todo_id)
 	(void)presence_service_get_status(&presence);
 	sync_format_now_iso(event_at, sizeof(event_at));
 
-	char body[320];
-	if (todo_id != NULL && todo_id[0] != '\0') {
-		(void)snprintf(body, sizeof(body),
-			       "{\"device_id\":\"clock-001\",\"event_at\":\"%s\",\"event_type\":\"%s\",\"todo_id\":\"%s\","
-			       "\"temperature_c\":%.1f,\"humidity_percent\":%.1f,\"lux\":%.1f,\"presence_detected\":%s}",
-			       event_at, event_type, todo_id, env.temperature_c, env.humidity_percent, env.lux,
-			       presence.detected ? "true" : "false");
-	} else {
-		(void)snprintf(body, sizeof(body),
-			       "{\"device_id\":\"clock-001\",\"event_at\":\"%s\",\"event_type\":\"%s\","
-			       "\"temperature_c\":%.1f,\"humidity_percent\":%.1f,\"lux\":%.1f,\"presence_detected\":%s}",
-			       event_at, event_type, env.temperature_c, env.humidity_percent, env.lux,
-			       presence.detected ? "true" : "false");
+	char *body = sync_protocol_build_event_report(event_at, event_type, todo_id, &env, &presence);
+	if (body == NULL) {
+		return -1;
 	}
 
 	char response[64] = { 0 };
 	int status = 0;
 	int ret = sync_http_request("POST", APP_DEVICE_EVENTS_WEB_PATH, body, response, sizeof(response), &status);
+	free(body);
 	return ret == 0 && status == 200 ? 0 : -1;
 }
 
@@ -790,16 +552,6 @@ static int sync_delete_todo_once(const char *todo_id)
 	return 0;
 }
 
-static void sync_parse_config_version_response(const char *json)
-{
-	if (json == NULL || json[0] == '\0') {
-		return;
-	}
-	(void)sync_parse_json_uint32(json, "config_version", &s_device_config_snapshot.config_version);
-	(void)sync_parse_json_string(json, "updated_at", s_device_config_snapshot.updated_at,
-				     sizeof(s_device_config_snapshot.updated_at));
-}
-
 static void sync_handle_config_conflict(void)
 {
 	ESP_LOGW(TAG, "config version conflict, re-pulling Web config");
@@ -813,33 +565,21 @@ static int sync_push_alarm_settings_once(const app_settings_t *settings)
 		return -1;
 	}
 
-	char body[768];
-	size_t used = (size_t)snprintf(body, sizeof(body), "{\"config_version\":%u,\"alarms\":[",
-				      (unsigned)s_device_config_snapshot.config_version);
-	for (uint8_t i = 0; i < settings->alarm_count && i < APP_SETTINGS_MAX_ALARMS; i++) {
-		const app_alarm_setting_t *alarm = &settings->alarms[i];
-		used += (size_t)snprintf(body + used, sizeof(body) - used,
-					 "%s{\"hour\":%u,\"minute\":%u,\"repeat\":%s,\"enabled\":%s,\"voice\":%s}",
-					 i == 0U ? "" : ",", (unsigned)alarm->hour, (unsigned)alarm->minute,
-					 alarm->repeat ? "true" : "false", alarm->enabled ? "true" : "false",
-					 alarm->voice ? "true" : "false");
-		if (used >= sizeof(body)) {
-			sync_publish_error("alarm push body overflow");
-			return -1;
-		}
-	}
-	used += (size_t)snprintf(body + used, sizeof(body) - used, "]}");
-	if (used >= sizeof(body)) {
-		sync_publish_error("alarm push body overflow");
+	char *body = sync_protocol_build_alarm_settings(s_device_config_snapshot.config_version, settings);
+	if (body == NULL) {
+		sync_publish_error("alarm push oom");
 		return -1;
 	}
 
 	char response[256] = { 0 };
 	int status = 0;
 	int ret = sync_http_request("PUT", "/api/device/alarms", body, response, sizeof(response), &status);
+	free(body);
 	if (ret == 0 && status == 200) {
 		s_device_config_snapshot.settings = *settings;
-		sync_parse_config_version_response(response);
+		sync_protocol_parse_config_version_response(response, &s_device_config_snapshot.config_version,
+							    s_device_config_snapshot.updated_at,
+							    sizeof(s_device_config_snapshot.updated_at));
 		return 0;
 	}
 	if (status == 409) {
@@ -856,23 +596,21 @@ static int sync_push_voice_settings_once(const app_settings_t *settings)
 		return -1;
 	}
 
-	char body[256];
-	(void)snprintf(body, sizeof(body),
-		       "{\"config_version\":%u,\"voice_settings\":{\"todo_voice_on\":%s,\"alarm_voice_on\":%s,"
-		       "\"env_voice_on\":%s,\"env_alert_on\":%s,\"home_hour_chime_on\":%s}}",
-		       (unsigned)s_device_config_snapshot.config_version,
-		       settings->todo_voice_on ? "true" : "false",
-		       settings->alarm_voice_on ? "true" : "false",
-		       settings->env_voice_on ? "true" : "false",
-		       settings->env_alert_on ? "true" : "false",
-		       settings->home_hour_chime_on ? "true" : "false");
+	char *body = sync_protocol_build_voice_settings(s_device_config_snapshot.config_version, settings);
+	if (body == NULL) {
+		sync_publish_error("voice push oom");
+		return -1;
+	}
 
 	char response[256] = { 0 };
 	int status = 0;
 	int ret = sync_http_request("PUT", "/api/device/voice-settings", body, response, sizeof(response), &status);
+	free(body);
 	if (ret == 0 && status == 200) {
 		s_device_config_snapshot.settings = *settings;
-		sync_parse_config_version_response(response);
+		sync_protocol_parse_config_version_response(response, &s_device_config_snapshot.config_version,
+							    s_device_config_snapshot.updated_at,
+							    sizeof(s_device_config_snapshot.updated_at));
 		return 0;
 	}
 	if (status == 409) {

@@ -173,7 +173,7 @@ Web 同步动作不再暴露为 `net_service_request_*` 接口；`net_service` �
 
 ## 6. 当前实现限制
 
-1. 当前配置快照解析仍为轻量实现，不是完整 JSON 解析器。
+1. 当前配置快照解析/组包已集中到固件 `sync_protocol` 模块，使用仓库内最小 cJSON 兼容实现。
 2. 设备端目前只存储未完成 Todo，不存 completed archive。
 3. 事件历史只存在于 Web 后端和前端展示中。
 4. 更完整的控制中心扩展设计，应参考 `docs/plans/2026-06-09-web-device-control-center-design.md`。
