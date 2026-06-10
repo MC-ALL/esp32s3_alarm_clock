@@ -1,21 +1,19 @@
 #include "app_module.h"
 #include <app_config.h>
 #include <module_common.h>
+#include <net_http.h>
 #include <net_service.h>
+#include <net_time.h>
 
 #include <esp_err.h>
 #include <esp_event.h>
-#include <esp_http_client.h>
 #include <esp_log.h>
 #include <esp_netif.h>
 #include <esp_timer.h>
 #include <esp_wifi.h>
 #include <freertos/FreeRTOS.h>
-#include <lwip/apps/sntp.h>
 #include <lwip/inet.h>
-#include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 static const char *TAG = "net";
 
@@ -32,35 +30,6 @@ static bool s_reconnect_timer_running;
 static esp_timer_handle_t s_sntp_sync_timer;
 static bool s_sntp_sync_timer_running;
 static uint32_t s_reconnect_delay_s = 5;
-
-static void net_service_configure_timezone(void)
-{
-	setenv("TZ", "CST-8", 1);
-	tzset();
-}
-
-static void net_service_try_mark_time_synced(void)
-{
-	time_t now = 0;
-	struct tm timeinfo = { 0 };
-
-	time(&now);
-	localtime_r(&now, &timeinfo);
-	if (timeinfo.tm_year > (2016 - 1900)) {
-		s_status.time_synced = true;
-	}
-}
-
-static void net_service_start_sntp(void)
-{
-	if (s_status.time_synced) {
-		return;
-	}
-	sntp_stop();
-	sntp_setoperatingmode(SNTP_OPMODE_POLL);
-	sntp_setservername(0, APP_SNTP_SERVER);
-	sntp_init();
-}
 
 static void net_service_stop_reconnect_timer(void)
 {
@@ -123,25 +92,8 @@ static void net_service_sntp_sync_cb(void *arg)
 		return;
 	}
 	s_status.time_synced = false;
-	net_service_start_sntp();
-	net_service_try_mark_time_synced();
-}
-
-static esp_err_t net_http_event_handler(esp_http_client_event_t *evt)
-{
-	app_net_http_response_t *response = (app_net_http_response_t *)evt->user_data;
-	if (response == NULL || response->body == NULL || response->body_cap == 0U) {
-		return ESP_OK;
-	}
-	if (evt->event_id == HTTP_EVENT_ON_DATA && evt->data != NULL && evt->data_len > 0) {
-		if ((response->body_len + (size_t)evt->data_len + 1U) > response->body_cap) {
-			return ESP_FAIL;
-		}
-		memcpy(response->body + response->body_len, evt->data, (size_t)evt->data_len);
-		response->body_len += (size_t)evt->data_len;
-		response->body[response->body_len] = '\0';
-	}
-	return ESP_OK;
+	net_time_start_sntp(s_status.time_synced);
+	net_time_try_mark_synced(&s_status.time_synced);
 }
 
 static void net_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
@@ -181,9 +133,9 @@ static void net_event_handler(void *arg, esp_event_base_t event_base, int32_t ev
 		}
 		s_reconnect_delay_s = 5;
 		net_service_stop_reconnect_timer();
-		net_service_start_sntp();
+		net_time_start_sntp(s_status.time_synced);
 		net_service_start_sntp_sync_timer();
-		net_service_try_mark_time_synced();
+		net_time_try_mark_synced(&s_status.time_synced);
 		ESP_LOGI(TAG, "got ip=%s", s_status.ip_addr);
 		return;
 	}
@@ -191,7 +143,7 @@ static void net_event_handler(void *arg, esp_event_base_t event_base, int32_t ev
 
 int net_service_init(void)
 {
-	net_service_configure_timezone();
+	net_time_configure_timezone();
 
 	esp_err_t err = esp_netif_init();
 	if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
@@ -289,7 +241,7 @@ int net_service_start(void)
 
 int net_service_stop(void)
 {
-	sntp_stop();
+	net_time_stop_sntp();
 	s_status = (app_net_status_t){ 0 };
 	net_service_stop_reconnect_timer();
 	net_service_stop_sntp_sync_timer();
@@ -332,7 +284,7 @@ bool net_service_get_status(app_net_status_t *out_status)
 	if (out_status == NULL) {
 		return false;
 	}
-	net_service_try_mark_time_synced();
+	net_time_try_mark_synced(&s_status.time_synced);
 	*out_status = s_status;
 	return true;
 }
@@ -355,46 +307,5 @@ int net_service_request_connect_now(void)
 int net_service_http_request(const char *method, const char *url, const char *body,
 			     app_net_http_response_t *response)
 {
-	if (method == NULL || url == NULL || response == NULL) {
-		return -1;
-	}
-	response->body_len = 0;
-	response->status_code = 0;
-	if (response->body != NULL && response->body_cap > 0U) {
-		response->body[0] = '\0';
-	}
-
-	esp_http_client_config_t cfg = {
-		.url = url,
-		.timeout_ms = 5000,
-		.event_handler = net_http_event_handler,
-		.user_data = response,
-	};
-	esp_http_client_handle_t client = esp_http_client_init(&cfg);
-	if (client == NULL) {
-		return -1;
-	}
-
-	if (strcmp(method, "GET") == 0) {
-		esp_http_client_set_method(client, HTTP_METHOD_GET);
-	} else if (strcmp(method, "POST") == 0) {
-		esp_http_client_set_method(client, HTTP_METHOD_POST);
-	} else if (strcmp(method, "PUT") == 0) {
-		esp_http_client_set_method(client, HTTP_METHOD_PUT);
-	} else if (strcmp(method, "DELETE") == 0) {
-		esp_http_client_set_method(client, HTTP_METHOD_DELETE);
-	} else {
-		esp_http_client_cleanup(client);
-		return -1;
-	}
-
-	if (body != NULL) {
-		esp_http_client_set_header(client, "Content-Type", "application/json");
-		esp_http_client_set_post_field(client, body, (int)strlen(body));
-	}
-
-	esp_err_t err = esp_http_client_perform(client);
-	response->status_code = esp_http_client_get_status_code(client);
-	esp_http_client_cleanup(client);
-	return err == ESP_OK ? 0 : (int)err;
+	return net_http_request(method, url, body, response);
 }

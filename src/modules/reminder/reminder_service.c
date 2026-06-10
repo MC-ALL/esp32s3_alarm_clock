@@ -3,6 +3,7 @@
 #include <environment_service.h>
 #include <module_common.h>
 #include <presence_service.h>
+#include <reminder_env_alert.h>
 #include <settings_model.h>
 #include <sync_service.h>
 
@@ -70,26 +71,6 @@ static int request_audio_event(app_audio_event_t event_id)
 	return app_bus_publish(&event);
 }
 
-static const char *env_alert_name(app_audio_event_t event)
-{
-	switch (event) {
-	case APP_AUDIO_EVENT_ENV_LIGHT_LOW:
-		return "light_low";
-	case APP_AUDIO_EVENT_ENV_LIGHT_HIGH:
-		return "light_high";
-	case APP_AUDIO_EVENT_ENV_TEMP_LOW:
-		return "temp_low";
-	case APP_AUDIO_EVENT_ENV_TEMP_HIGH:
-		return "temp_high";
-	case APP_AUDIO_EVENT_ENV_HUMI_LOW:
-		return "humi_low";
-	case APP_AUDIO_EVENT_ENV_HUMI_HIGH:
-		return "humi_high";
-	default:
-		return "none";
-	}
-}
-
 static bool todo_id_known(const char *id)
 {
 	for (uint8_t i = 0; i < s_known_todo_count; i++) {
@@ -110,46 +91,6 @@ static void remember_todo_ids(const app_todo_snapshot_t *todo)
 		strlcpy(s_known_todo_ids[s_known_todo_count], todo->items[i].id, sizeof(s_known_todo_ids[0]));
 		s_known_todo_count++;
 	}
-}
-
-static bool env_snapshot_alert_event(const app_environment_snapshot_t *env, const app_settings_t *settings,
-				     app_audio_event_t *event)
-{
-	if (env == NULL || settings == NULL || event == NULL) {
-		return false;
-	}
-
-	if (env->dht11_valid) {
-		if (env->temperature_c < (float)settings->env_temp_low_c) {
-			*event = APP_AUDIO_EVENT_ENV_TEMP_LOW;
-			return true;
-		}
-		if (env->temperature_c > (float)settings->env_temp_high_c) {
-			*event = APP_AUDIO_EVENT_ENV_TEMP_HIGH;
-			return true;
-		}
-		if (env->humidity_percent < (float)settings->env_humi_low_percent) {
-			*event = APP_AUDIO_EVENT_ENV_HUMI_LOW;
-			return true;
-		}
-		if (env->humidity_percent > (float)settings->env_humi_high_percent) {
-			*event = APP_AUDIO_EVENT_ENV_HUMI_HIGH;
-			return true;
-		}
-	}
-
-	if (env->bh1750_valid) {
-		if (env->lux < (float)settings->env_lux_low) {
-			*event = APP_AUDIO_EVENT_ENV_LIGHT_LOW;
-			return true;
-		}
-		if (env->lux > (float)settings->env_lux_high) {
-			*event = APP_AUDIO_EVENT_ENV_LIGHT_HIGH;
-			return true;
-		}
-	}
-
-	return false;
 }
 
 static void update_alarm_runtime(app_settings_t *settings, const struct tm *t)
@@ -220,7 +161,7 @@ static void update_env_alert_runtime(const app_settings_t *settings)
 	}
 
 	app_audio_event_t event = APP_AUDIO_EVENT_TEST;
-	if (!env_snapshot_alert_event(&env, settings, &event)) {
+	if (!reminder_env_alert_event(&env, settings, &event)) {
 		if (s_env_active_alert != APP_AUDIO_EVENT_TEST) {
 			ESP_LOGI(TAG, "env alert cleared");
 		}
@@ -234,7 +175,7 @@ static void update_env_alert_runtime(const app_settings_t *settings)
 	if (changed || repeat_due) {
 		ESP_LOGW(TAG,
 			 "env alert %s temp=%.1f[%d,%d] humi=%.1f[%u,%u] lux=%.1f[%u,%u] voice=%d",
-			 env_alert_name(event),
+			 reminder_env_alert_name(event),
 			 env.temperature_c,
 			 (int)settings->env_temp_low_c,
 			 (int)settings->env_temp_high_c,
@@ -247,7 +188,7 @@ static void update_env_alert_runtime(const app_settings_t *settings)
 			 settings->env_voice_on ? 1 : 0);
 		if (settings->env_voice_on) {
 			int ret = request_audio_event(event);
-			ESP_LOGI(TAG, "env voice event=%s ret=%d", env_alert_name(event), ret);
+			ESP_LOGI(TAG, "env voice event=%s ret=%d", reminder_env_alert_name(event), ret);
 		}
 		publish_device_event("env_alert_triggered", NULL);
 		s_env_last_alert_play_us = now_us;

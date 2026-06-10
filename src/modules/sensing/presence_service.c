@@ -1,10 +1,10 @@
 #include "app_module.h"
 #include <hw_config.h>
+#include <presence_ld2410.h>
 #include <presence_service.h>
 #include <module_common.h>
 
 #include <inttypes.h>
-#include <string.h>
 #include <driver/gpio.h>
 #include <driver/uart.h>
 #include <esp_err.h>
@@ -21,19 +21,13 @@ static bool s_present_hint;
 static int64_t s_last_uart_rx_us;
 static int64_t s_last_uart_log_us;
 static uint32_t s_uart_rx_bytes;
-static uint8_t s_rx_frame_buf[256];
-static size_t s_rx_frame_len;
+static presence_ld2410_parser_t s_ld2410_parser;
 static app_presence_status_t s_status;
 static portMUX_TYPE s_presence_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static bool presence_uart_active_recently(int64_t now_us)
 {
 	return (s_last_uart_rx_us > 0) && ((now_us - s_last_uart_rx_us) < 1000000);
-}
-
-static uint16_t presence_read_le16(const uint8_t *data)
-{
-	return (uint16_t)data[0] | ((uint16_t)data[1] << 8);
 }
 
 static void presence_refresh_derived_status(int64_t now_us)
@@ -53,104 +47,29 @@ static void presence_refresh_derived_status(int64_t now_us)
 	taskEXIT_CRITICAL(&s_presence_lock);
 }
 
-static bool presence_parse_payload(const uint8_t *payload, size_t payload_len)
+static void presence_apply_ld2410_frame(const presence_ld2410_frame_t *frame, void *ctx)
 {
-	if (payload == NULL || payload_len < 13U) {
-		return false;
-	}
-	if ((payload[0] != 0x01U && payload[0] != 0x02U) || payload[1] != 0xAAU) {
-		return false;
-	}
-	if (payload[payload_len - 2U] != 0x55U || payload[payload_len - 1U] != 0x00U) {
-		return false;
+	(void)ctx;
+	if (frame == NULL) {
+		return;
 	}
 
 	const int64_t now_us = esp_timer_get_time();
-	const uint8_t target_state = payload[2];
-	const uint16_t moving_distance_cm = presence_read_le16(&payload[3]);
-	const uint8_t moving_energy = payload[5];
-	const uint16_t stationary_distance_cm = presence_read_le16(&payload[6]);
-	const uint8_t stationary_energy = payload[8];
-	const uint16_t detection_distance_cm = presence_read_le16(&payload[9]);
-	uint8_t max_moving_gate = 0;
-	uint8_t max_stationary_gate = 0;
-
-	if (payload[0] == 0x01U && payload_len >= 35U) {
-		max_moving_gate = payload[11];
-		max_stationary_gate = payload[12];
-	}
 
 	taskENTER_CRITICAL(&s_presence_lock);
 	s_status.frame_valid = true;
-	s_status.target_state = target_state;
-	s_status.moving_distance_cm = moving_distance_cm;
-	s_status.moving_energy = moving_energy;
-	s_status.stationary_distance_cm = stationary_distance_cm;
-	s_status.stationary_energy = stationary_energy;
-	s_status.detection_distance_cm = detection_distance_cm;
-	s_status.max_moving_gate = max_moving_gate;
-	s_status.max_stationary_gate = max_stationary_gate;
+	s_status.target_state = frame->target_state;
+	s_status.moving_distance_cm = frame->moving_distance_cm;
+	s_status.moving_energy = frame->moving_energy;
+	s_status.stationary_distance_cm = frame->stationary_distance_cm;
+	s_status.stationary_energy = frame->stationary_energy;
+	s_status.detection_distance_cm = frame->detection_distance_cm;
+	s_status.max_moving_gate = frame->max_moving_gate;
+	s_status.max_stationary_gate = frame->max_stationary_gate;
 	s_status.last_frame_us = now_us;
 	taskEXIT_CRITICAL(&s_presence_lock);
 
 	presence_refresh_derived_status(now_us);
-	return true;
-}
-
-static void presence_process_rx_buffer(void)
-{
-	static const uint8_t FRAME_HEADER[4] = { 0xF4, 0xF3, 0xF2, 0xF1 };
-	static const uint8_t FRAME_TAIL[4] = { 0xF8, 0xF7, 0xF6, 0xF5 };
-
-	for (;;) {
-		if (s_rx_frame_len < 6U) {
-			return;
-		}
-
-		size_t start = 0;
-		while ((start + sizeof(FRAME_HEADER)) <= s_rx_frame_len) {
-			if (memcmp(&s_rx_frame_buf[start], FRAME_HEADER, sizeof(FRAME_HEADER)) == 0) {
-				break;
-			}
-			start++;
-		}
-
-		if (start > 0U) {
-			if (start >= s_rx_frame_len) {
-				s_rx_frame_len = 0;
-				return;
-			}
-			memmove(s_rx_frame_buf, &s_rx_frame_buf[start], s_rx_frame_len - start);
-			s_rx_frame_len -= start;
-			if (s_rx_frame_len < 6U) {
-				return;
-			}
-		}
-
-		const uint16_t payload_len = presence_read_le16(&s_rx_frame_buf[4]);
-		if (payload_len < 13U || payload_len > 64U) {
-			memmove(s_rx_frame_buf, &s_rx_frame_buf[1], s_rx_frame_len - 1U);
-			s_rx_frame_len--;
-			continue;
-		}
-
-		const size_t total_len = 6U + (size_t)payload_len + sizeof(FRAME_TAIL);
-		if (s_rx_frame_len < total_len) {
-			return;
-		}
-
-		if (memcmp(&s_rx_frame_buf[6U + payload_len], FRAME_TAIL, sizeof(FRAME_TAIL)) != 0) {
-			memmove(s_rx_frame_buf, &s_rx_frame_buf[1], s_rx_frame_len - 1U);
-			s_rx_frame_len--;
-			continue;
-		}
-
-		(void)presence_parse_payload(&s_rx_frame_buf[6], payload_len);
-		if (s_rx_frame_len > total_len) {
-			memmove(s_rx_frame_buf, &s_rx_frame_buf[total_len], s_rx_frame_len - total_len);
-		}
-		s_rx_frame_len -= total_len;
-	}
 }
 
 static void presence_feed_bytes(const uint8_t *data, size_t len)
@@ -159,19 +78,9 @@ static void presence_feed_bytes(const uint8_t *data, size_t len)
 		return;
 	}
 
-	if ((s_rx_frame_len + len) > sizeof(s_rx_frame_buf)) {
+	if (!presence_ld2410_parser_feed(&s_ld2410_parser, data, len, presence_apply_ld2410_frame, NULL)) {
 		ESP_LOGW(TAG, "rx frame buffer overflow, reset parser");
-		s_rx_frame_len = 0;
 	}
-
-	if (len > sizeof(s_rx_frame_buf)) {
-		data += (len - sizeof(s_rx_frame_buf));
-		len = sizeof(s_rx_frame_buf);
-	}
-
-	memcpy(&s_rx_frame_buf[s_rx_frame_len], data, len);
-	s_rx_frame_len += len;
-	presence_process_rx_buffer();
 }
 
 static void presence_drain_uart(size_t bytes_pending)
@@ -225,7 +134,7 @@ static void presence_task(void *arg)
 				ESP_LOGW(TAG, "uart overflow, flushing input");
 				(void)uart_flush_input(UART_NUM_1);
 				xQueueReset(s_uart_event_queue);
-				s_rx_frame_len = 0;
+				presence_ld2410_parser_reset(&s_ld2410_parser);
 			}
 		}
 
@@ -319,7 +228,7 @@ int presence_service_init(void)
 	s_last_uart_rx_us = 0;
 	s_last_uart_log_us = 0;
 	s_uart_rx_bytes = 0;
-	s_rx_frame_len = 0;
+	presence_ld2410_parser_reset(&s_ld2410_parser);
 	s_status = (app_presence_status_t){
 		.detected = s_present_hint,
 		.out_pin_present = s_present_hint,
@@ -353,7 +262,7 @@ int presence_service_stop(void)
 		s_uart_event_queue = NULL;
 	}
 
-	s_rx_frame_len = 0;
+	presence_ld2410_parser_reset(&s_ld2410_parser);
 	(void)uart_driver_delete(UART_NUM_1);
 	return 0;
 }

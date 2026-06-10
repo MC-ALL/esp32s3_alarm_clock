@@ -1,11 +1,11 @@
 #include "app_module.h"
 #include <app_bus.h>
+#include <environment_dht11.h>
 #include <environment_service.h>
 #include <hw_config.h>
 #include <module_common.h>
 #include <settings_model.h>
 
-#include <dht.h>
 #include <driver/gpio.h>
 #include <driver/i2c_master.h>
 #include <esp_err.h>
@@ -24,23 +24,6 @@ static app_environment_snapshot_t s_snapshot;
 static SemaphoreHandle_t s_snapshot_mutex;
 static uint32_t s_dht11_fail_streak;
 static volatile uint32_t s_sample_interval_s = 2;
-
-typedef struct {
-	const char *name;
-	int (*init)(void);
-	int (*read)(float *temperature_c, float *humidity_percent);
-	void (*deinit)(void);
-} app_temp_humidity_provider_t;
-
-typedef struct {
-	bool valid;
-	float temperature_c;
-	float humidity_percent;
-	int64_t last_attempt_us;
-	int64_t last_success_us;
-} dht11_provider_cache_t;
-
-static dht11_provider_cache_t s_dht11_cache;
 
 static int environment_set_sample_interval_s(uint32_t seconds)
 {
@@ -69,65 +52,7 @@ static void environment_bus_handler(const app_bus_event_t *event, void *ctx)
 	(void)environment_set_sample_interval_s(event->data.settings.settings.env_sample_s);
 }
 
-static int dht11_provider_init(void)
-{
-	s_dht11_cache = (dht11_provider_cache_t){ 0 };
-	gpio_set_direction(APP_PIN_DHT11_DATA, GPIO_MODE_INPUT);
-	gpio_pullup_en(APP_PIN_DHT11_DATA);
-	return 0;
-}
-
-static int dht11_provider_read(float *temperature_c, float *humidity_percent)
-{
-	static const int64_t DHT11_MIN_SAMPLE_US = 2000000;
-	static const int64_t DHT11_STALE_US = 10000000;
-	const int64_t now_us = esp_timer_get_time();
-
-	if (temperature_c == NULL || humidity_percent == NULL) {
-		return -1;
-	}
-
-	if (s_dht11_cache.valid && (now_us - s_dht11_cache.last_attempt_us) < DHT11_MIN_SAMPLE_US) {
-		*temperature_c = s_dht11_cache.temperature_c;
-		*humidity_percent = s_dht11_cache.humidity_percent;
-		return 1;
-	}
-
-	s_dht11_cache.last_attempt_us = now_us;
-	const esp_err_t err =
-	    dht_read_float_data(DHT_TYPE_DHT11, (gpio_num_t)APP_PIN_DHT11_DATA, humidity_percent, temperature_c);
-	if (err == ESP_OK) {
-		s_dht11_cache.valid = true;
-		s_dht11_cache.temperature_c = *temperature_c;
-		s_dht11_cache.humidity_percent = *humidity_percent;
-		s_dht11_cache.last_success_us = now_us;
-		return 0;
-	}
-
-	if (s_dht11_cache.valid && (now_us - s_dht11_cache.last_success_us) < DHT11_STALE_US) {
-		*temperature_c = s_dht11_cache.temperature_c;
-		*humidity_percent = s_dht11_cache.humidity_percent;
-		return 1;
-	}
-
-	return -(int)err;
-}
-
-static void dht11_provider_deinit(void)
-{
-	gpio_set_direction(APP_PIN_DHT11_DATA, GPIO_MODE_INPUT);
-	gpio_pullup_en(APP_PIN_DHT11_DATA);
-	s_dht11_cache = (dht11_provider_cache_t){ 0 };
-}
-
-static const app_temp_humidity_provider_t DHT11_PROVIDER = {
-	.name = "dht11",
-	.init = dht11_provider_init,
-	.read = dht11_provider_read,
-	.deinit = dht11_provider_deinit,
-};
-
-static const app_temp_humidity_provider_t *s_temp_humidity_provider = &DHT11_PROVIDER;
+static const app_temp_humidity_provider_t *s_temp_humidity_provider;
 
 static void environment_log_snapshot(const app_environment_snapshot_t *snapshot)
 {
@@ -234,6 +159,7 @@ static void environment_task(void *arg)
 int environment_service_init(void)
 {
 	(void)esp_log_level_set("dht", ESP_LOG_WARN);
+	s_temp_humidity_provider = environment_dht11_provider();
 
 	const i2c_master_bus_config_t bus_config = {
 		.i2c_port = APP_BH1750_I2C_PORT,
