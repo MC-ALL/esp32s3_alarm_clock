@@ -39,6 +39,7 @@ idf_component_register(
     "modules/connectivity/net_http.c"
     "modules/connectivity/net_service.c"
     "modules/connectivity/net_time.c"
+    "modules/connectivity/net_wifi_platform.c"
     "modules/connectivity/net_wifi_runtime.c"
     "modules/sync/sync_bus_mapper.c"
     "modules/sync/sync_service.c"
