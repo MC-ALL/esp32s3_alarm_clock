@@ -1,19 +1,16 @@
 #include <display_lvgl_port.h>
+#include <display_lvgl_runtime.h>
 #include <hw_config.h>
 
 #include <esp_err.h>
 #include <esp_log.h>
-#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
-#include <freertos/task.h>
 #include <stdint.h>
 
 static const char *TAG = "display_lvgl";
 
 static SemaphoreHandle_t s_lvgl_mutex;
-static TaskHandle_t s_lvgl_task;
-static esp_timer_handle_t s_lvgl_tick_timer;
 
 #if LVGL_VERSION_MAJOR >= 9
 static lv_display_t *s_lvgl_display;
@@ -29,12 +26,6 @@ static lv_color_t s_lvgl_buf2[APP_LCD_WIDTH * 20];
 static const int APP_LCD_X_GAP = 0;
 static const int APP_LCD_Y_GAP = 0;
 
-static void lvgl_tick_cb(void *arg)
-{
-	(void)arg;
-	lv_tick_inc(2);
-}
-
 #if LVGL_VERSION_MAJOR >= 9
 static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
@@ -48,7 +39,6 @@ static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px
 }
 
 #define APP_LV_SCREEN_ACTIVE() lv_screen_active()
-#define APP_LV_TIMER_HANDLER() lv_timer_handler()
 #else
 static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *px_map)
 {
@@ -62,21 +52,7 @@ static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t 
 }
 
 #define APP_LV_SCREEN_ACTIVE() lv_scr_act()
-#define APP_LV_TIMER_HANDLER() lv_timer_handler()
 #endif
-
-static void display_task(void *arg)
-{
-	(void)arg;
-
-	for (;;) {
-		if (display_lvgl_port_lock(UINT32_MAX)) {
-			(void)APP_LV_TIMER_HANDLER();
-			display_lvgl_port_unlock();
-		}
-		vTaskDelay(pdMS_TO_TICKS(10));
-	}
-}
 
 static void display_prepare_screen(void)
 {
@@ -91,8 +67,6 @@ static void display_prepare_screen(void)
 
 int display_lvgl_port_init(esp_lcd_panel_handle_t panel)
 {
-	esp_err_t err;
-
 	lv_init();
 	s_lvgl_mutex = xSemaphoreCreateMutex();
 	if (s_lvgl_mutex == NULL) {
@@ -128,27 +102,15 @@ int display_lvgl_port_init(esp_lcd_panel_handle_t panel)
 	}
 #endif
 
-	const esp_timer_create_args_t tick_timer_args = {
-		.callback = &lvgl_tick_cb,
-		.name = "lvgl_tick",
-	};
-	err = esp_timer_create(&tick_timer_args, &s_lvgl_tick_timer);
-	if (err != ESP_OK) {
-		ESP_LOGE(TAG, "esp_timer_create failed: %s", esp_err_to_name(err));
+	int ret = display_lvgl_runtime_init(display_lvgl_port_lock, display_lvgl_port_unlock);
+	if (ret != 0) {
 		display_lvgl_port_stop();
-		return (int)err;
-	}
-
-	err = esp_timer_start_periodic(s_lvgl_tick_timer, 2000);
-	if (err != ESP_OK) {
-		ESP_LOGE(TAG, "esp_timer_start_periodic failed: %s", esp_err_to_name(err));
-		display_lvgl_port_stop();
-		return (int)err;
+		return ret;
 	}
 
 	if (display_lvgl_port_lock(100)) {
 		display_prepare_screen();
-		(void)APP_LV_TIMER_HANDLER();
+		display_lvgl_runtime_handle_timer();
 		display_lvgl_port_unlock();
 	}
 
@@ -157,27 +119,12 @@ int display_lvgl_port_init(esp_lcd_panel_handle_t panel)
 
 int display_lvgl_port_start(void)
 {
-	BaseType_t ok = xTaskCreate(display_task, "display_task", 4096, NULL, 7, &s_lvgl_task);
-	if (ok != pdPASS) {
-		ESP_LOGE(TAG, "failed to create display task");
-		return -1;
-	}
-
-	return 0;
+	return display_lvgl_runtime_start();
 }
 
 void display_lvgl_port_stop(void)
 {
-	if (s_lvgl_task != NULL) {
-		vTaskDelete(s_lvgl_task);
-		s_lvgl_task = NULL;
-	}
-
-	if (s_lvgl_tick_timer != NULL) {
-		(void)esp_timer_stop(s_lvgl_tick_timer);
-		(void)esp_timer_delete(s_lvgl_tick_timer);
-		s_lvgl_tick_timer = NULL;
-	}
+	display_lvgl_runtime_stop();
 
 	if (s_lvgl_mutex != NULL) {
 		vSemaphoreDelete(s_lvgl_mutex);
