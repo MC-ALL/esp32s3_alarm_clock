@@ -1,18 +1,17 @@
 #include "app_module.h"
 #include <app_bus.h>
-#include <app_config.h>
 #include <module_common.h>
 #include <settings_model.h>
 #include <sync_bus_mapper.h>
 #include <sync_config_pull.h>
 #include <sync_event_reporter.h>
+#include <sync_periodic_timer.h>
 #include <sync_request_executor.h>
 #include <sync_request_retry.h>
 #include <sync_service.h>
 #include <sync_todo_cache.h>
 
 #include <esp_log.h>
-#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
@@ -26,12 +25,7 @@ static app_todo_snapshot_t s_todo_snapshot;
 static app_device_config_snapshot_t s_device_config_snapshot;
 static QueueHandle_t s_request_queue;
 static TaskHandle_t s_sync_task;
-static esp_timer_handle_t s_config_timer;
-static esp_timer_handle_t s_status_timer;
-static bool s_config_timer_running;
-static bool s_status_timer_running;
-static int64_t s_last_config_pull_us;
-static int64_t s_last_status_report_us;
+static sync_periodic_timer_t s_periodic_timer;
 static sync_request_retry_state_t s_request_retries;
 
 static void sync_queue_request(const sync_request_t *request);
@@ -65,6 +59,12 @@ static void sync_queue_request(const sync_request_t *request)
 	}
 }
 
+static void sync_queue_periodic_request(const sync_request_t *request, void *ctx)
+{
+	(void)ctx;
+	sync_queue_request(request);
+}
+
 static void sync_bus_handler(const app_bus_event_t *event, void *ctx)
 {
 	(void)ctx;
@@ -77,30 +77,6 @@ static void sync_bus_handler(const app_bus_event_t *event, void *ctx)
 		return;
 	}
 	sync_queue_request(&request);
-}
-
-static void sync_config_timer_cb(void *arg)
-{
-	(void)arg;
-	const int64_t now_us = esp_timer_get_time();
-	if (s_last_config_pull_us > 0 &&
-	    (now_us - s_last_config_pull_us) < (int64_t)APP_CONFIG_SYNC_INTERVAL_S * 1000000LL) {
-		return;
-	}
-	s_last_config_pull_us = now_us;
-	sync_queue_request(&(sync_request_t){ .type = SYNC_REQUEST_PULL_CONFIG });
-}
-
-static void sync_status_timer_cb(void *arg)
-{
-	(void)arg;
-	const int64_t now_us = esp_timer_get_time();
-	if (s_last_status_report_us > 0 &&
-	    (now_us - s_last_status_report_us) < (int64_t)APP_STATUS_REPORT_INTERVAL_S * 1000000LL) {
-		return;
-	}
-	s_last_status_report_us = now_us;
-	sync_queue_request(&(sync_request_t){ .type = SYNC_REQUEST_REPORT_STATUS });
 }
 
 static int sync_execute_request(const sync_request_t *request)
@@ -165,18 +141,10 @@ int sync_service_init(void)
 		}
 	}
 
-	const esp_timer_create_args_t config_timer_args = {
-		.callback = sync_config_timer_cb,
-		.name = "config_sync",
+	const sync_periodic_timer_config_t periodic_config = {
+		.queue_request = sync_queue_periodic_request,
 	};
-	if (s_config_timer == NULL && esp_timer_create(&config_timer_args, &s_config_timer) != ESP_OK) {
-		return -1;
-	}
-	const esp_timer_create_args_t status_timer_args = {
-		.callback = sync_status_timer_cb,
-		.name = "status_report",
-	};
-	if (s_status_timer == NULL && esp_timer_create(&status_timer_args, &s_status_timer) != ESP_OK) {
+	if (sync_periodic_timer_init(&s_periodic_timer, &periodic_config) != 0) {
 		return -1;
 	}
 
@@ -197,14 +165,7 @@ int sync_service_start(void)
 			return -1;
 		}
 	}
-	if (s_config_timer != NULL && !s_config_timer_running &&
-	    esp_timer_start_periodic(s_config_timer, (uint64_t)APP_CONFIG_SYNC_INTERVAL_S * 1000000ULL) == ESP_OK) {
-		s_config_timer_running = true;
-	}
-	if (s_status_timer != NULL && !s_status_timer_running &&
-	    esp_timer_start_periodic(s_status_timer, (uint64_t)APP_STATUS_REPORT_INTERVAL_S * 1000000ULL) == ESP_OK) {
-		s_status_timer_running = true;
-	}
+	sync_periodic_timer_start(&s_periodic_timer);
 	sync_queue_request(&(sync_request_t){ .type = SYNC_REQUEST_PULL_CONFIG });
 	sync_queue_request(&(sync_request_t){ .type = SYNC_REQUEST_REPORT_STATUS });
 	return 0;
@@ -212,14 +173,7 @@ int sync_service_start(void)
 
 int sync_service_stop(void)
 {
-	if (s_config_timer != NULL && s_config_timer_running) {
-		(void)esp_timer_stop(s_config_timer);
-		s_config_timer_running = false;
-	}
-	if (s_status_timer != NULL && s_status_timer_running) {
-		(void)esp_timer_stop(s_status_timer);
-		s_status_timer_running = false;
-	}
+	sync_periodic_timer_stop(&s_periodic_timer);
 	if (s_sync_task != NULL) {
 		vTaskDelete(s_sync_task);
 		s_sync_task = NULL;
@@ -228,13 +182,6 @@ int sync_service_stop(void)
 		vQueueDelete(s_request_queue);
 		s_request_queue = NULL;
 	}
-	if (s_config_timer != NULL) {
-		(void)esp_timer_delete(s_config_timer);
-		s_config_timer = NULL;
-	}
-	if (s_status_timer != NULL) {
-		(void)esp_timer_delete(s_status_timer);
-		s_status_timer = NULL;
-	}
+	sync_periodic_timer_deinit(&s_periodic_timer);
 	return 0;
 }
