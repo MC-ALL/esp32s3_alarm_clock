@@ -3,21 +3,19 @@
 #include <app_config.h>
 #include <environment_service.h>
 #include <module_common.h>
-#include <net_service.h>
 #include <presence_service.h>
 #include <settings_model.h>
 #include <sync_service.h>
 #include <sync_protocol.h>
+#include <sync_todo_cache.h>
+#include <sync_transport.h>
 
-#include <esp_err.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
-#include <inttypes.h>
-#include <nvs.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,10 +23,6 @@
 
 static const char *TAG = "sync";
 
-#define APP_TODO_CACHE_NAMESPACE "todo_cache"
-#define APP_TODO_CACHE_BLOB_KEY "snapshot_v1"
-#define APP_TODO_CACHE_MAGIC 0x544F444FU
-#define APP_TODO_CACHE_VERSION 1U
 #define SYNC_REQUEST_QUEUE_DEPTH 8U
 #define SYNC_REQUEST_RETRY_DEPTH 8U
 #define SYNC_EVENT_RETRY_DEPTH 8U
@@ -63,13 +57,6 @@ typedef struct {
 	int64_t next_due_us;
 } sync_request_retry_t;
 
-typedef struct {
-	uint32_t magic;
-	uint16_t version;
-	uint16_t size;
-	app_todo_snapshot_t snapshot;
-} sync_todo_cache_blob_t;
-
 static app_todo_snapshot_t s_todo_snapshot;
 static app_device_config_snapshot_t s_device_config_snapshot;
 static QueueHandle_t s_request_queue;
@@ -91,99 +78,6 @@ static sync_event_retry_t s_event_retries[SYNC_EVENT_RETRY_DEPTH];
 static uint8_t s_event_retry_count;
 
 static void sync_queue_request(const sync_request_t *request);
-
-static uint32_t sync_backoff_s(uint8_t failures, uint32_t base_s, uint32_t max_s)
-{
-	if (failures == 0U) {
-		return 0;
-	}
-	uint32_t value = base_s;
-	for (uint8_t i = 1; i < failures && value < max_s; i++) {
-		value *= 2U;
-	}
-	return value > max_s ? max_s : value;
-}
-
-static bool sync_net_ready(void)
-{
-	app_net_status_t status = { 0 };
-	return net_service_get_status(&status) && status.wifi_connected && status.ip_ready;
-}
-
-static void sync_format_now_iso(char *out, size_t out_size)
-{
-	if (out == NULL || out_size == 0U) {
-		return;
-	}
-
-	time_t now = 0;
-	struct tm timeinfo = { 0 };
-	time(&now);
-	localtime_r(&now, &timeinfo);
-	(void)strftime(out, out_size, "%Y-%m-%dT%H:%M:%S%z", &timeinfo);
-}
-
-static void sync_todo_cache_sanitize(app_todo_snapshot_t *snapshot)
-{
-	if (snapshot == NULL) {
-		return;
-	}
-	if (snapshot->count > APP_TODO_MAX_ITEMS) {
-		snapshot->count = APP_TODO_MAX_ITEMS;
-	}
-	snapshot->sync_in_progress = false;
-	if (!snapshot->sync_ok) {
-		snapshot->last_error[0] = '\0';
-	}
-}
-
-static void sync_todo_cache_save(void)
-{
-	sync_todo_cache_blob_t blob = {
-		.magic = APP_TODO_CACHE_MAGIC,
-		.version = APP_TODO_CACHE_VERSION,
-		.size = sizeof(blob.snapshot),
-		.snapshot = s_todo_snapshot,
-	};
-	sync_todo_cache_sanitize(&blob.snapshot);
-
-	nvs_handle_t handle = 0;
-	esp_err_t err = nvs_open(APP_TODO_CACHE_NAMESPACE, NVS_READWRITE, &handle);
-	if (err != ESP_OK) {
-		ESP_LOGW(TAG, "todo cache open write failed: %s", esp_err_to_name(err));
-		return;
-	}
-	err = nvs_set_blob(handle, APP_TODO_CACHE_BLOB_KEY, &blob, sizeof(blob));
-	if (err == ESP_OK) {
-		err = nvs_commit(handle);
-	}
-	nvs_close(handle);
-	if (err != ESP_OK) {
-		ESP_LOGW(TAG, "todo cache save failed: %s", esp_err_to_name(err));
-	}
-}
-
-static bool sync_todo_cache_load(void)
-{
-	nvs_handle_t handle = 0;
-	esp_err_t err = nvs_open(APP_TODO_CACHE_NAMESPACE, NVS_READONLY, &handle);
-	if (err != ESP_OK) {
-		return false;
-	}
-
-	sync_todo_cache_blob_t blob = { 0 };
-	size_t size = sizeof(blob);
-	err = nvs_get_blob(handle, APP_TODO_CACHE_BLOB_KEY, &blob, &size);
-	nvs_close(handle);
-	if (err != ESP_OK || size != sizeof(blob) || blob.magic != APP_TODO_CACHE_MAGIC ||
-	    blob.version != APP_TODO_CACHE_VERSION || blob.size != sizeof(blob.snapshot)) {
-		return false;
-	}
-
-	sync_todo_cache_sanitize(&blob.snapshot);
-	s_todo_snapshot = blob.snapshot;
-	return true;
-}
 
 static int sync_find_todo_index_by_id(const char *todo_id)
 {
@@ -244,34 +138,13 @@ static void sync_mark_config_failure(const char *reason)
 	sync_publish_error(s_todo_snapshot.last_error);
 }
 
-static int sync_http_request(const char *method, const char *path, const char *request_body,
-			     char *response_body, size_t response_body_size, int *out_status)
-{
-	char url[192];
-	(void)snprintf(url, sizeof(url), "http://%s:%d%s", APP_TODO_WEB_HOST, APP_TODO_WEB_PORT, path);
-
-	app_net_http_response_t response = {
-		.body = response_body,
-		.body_cap = response_body_size,
-	};
-	if (response_body != NULL && response_body_size > 0U) {
-		response_body[0] = '\0';
-	}
-
-	int ret = net_service_http_request(method, url, request_body, &response);
-	if (out_status != NULL) {
-		*out_status = response.status_code;
-	}
-	return ret;
-}
-
 static void sync_pull_config_once(void)
 {
 	const int64_t now_us = esp_timer_get_time();
 	if (s_config_in_progress || now_us < s_config_backoff_until_us) {
 		return;
 	}
-	if (!sync_net_ready()) {
+	if (!sync_transport_net_ready()) {
 		sync_mark_config_failure("wifi offline");
 		return;
 	}
@@ -292,7 +165,7 @@ static void sync_pull_config_once(void)
 	s_todo_snapshot.sync_in_progress = true;
 
 	int status = 0;
-	int ret = sync_http_request("GET", APP_DEVICE_CONFIG_WEB_PATH, NULL, body, BODY_CAP, &status);
+	int ret = sync_transport_http_request("GET", APP_DEVICE_CONFIG_WEB_PATH, NULL, body, BODY_CAP, &status);
 	app_settings_t current_settings = { 0 };
 	settings_model_get(&current_settings);
 	if (ret == 0 && status == 200 &&
@@ -312,7 +185,7 @@ static void sync_pull_config_once(void)
 			(void)app_bus_publish(&updated);
 		}
 		sync_touch_last_sync();
-		sync_todo_cache_save();
+		sync_todo_cache_save(&s_todo_snapshot);
 		s_config_failures = 0;
 		s_config_backoff_until_us = 0;
 		ESP_LOGI(TAG, "config pull ok count=%u cfg=%u bytes=%u",
@@ -334,7 +207,7 @@ static void sync_pull_config_once(void)
 static void sync_report_status_once(void)
 {
 	const int64_t now_us = esp_timer_get_time();
-	if (now_us < s_status_backoff_until_us || !sync_net_ready()) {
+	if (now_us < s_status_backoff_until_us || !sync_transport_net_ready()) {
 		return;
 	}
 
@@ -343,7 +216,7 @@ static void sync_report_status_once(void)
 	char sent_at[40] = { 0 };
 	(void)environment_service_get_snapshot(&env);
 	(void)presence_service_get_status(&presence);
-	sync_format_now_iso(sent_at, sizeof(sent_at));
+	sync_transport_format_now_iso(sent_at, sizeof(sent_at));
 
 	char *body = sync_protocol_build_status_report(sent_at, &env, &presence);
 	if (body == NULL) {
@@ -353,7 +226,7 @@ static void sync_report_status_once(void)
 
 	char response[64] = { 0 };
 	int status = 0;
-	int ret = sync_http_request("POST", APP_DEVICE_STATUS_WEB_PATH, body, response, sizeof(response), &status);
+	int ret = sync_transport_http_request("POST", APP_DEVICE_STATUS_WEB_PATH, body, response, sizeof(response), &status);
 	free(body);
 	if (ret == 0 && status == 200) {
 		s_status_failures = 0;
@@ -369,7 +242,7 @@ static void sync_report_status_once(void)
 
 static int sync_report_event_http(const char *event_type, const char *todo_id)
 {
-	if (event_type == NULL || event_type[0] == '\0' || !sync_net_ready()) {
+	if (event_type == NULL || event_type[0] == '\0' || !sync_transport_net_ready()) {
 		return -1;
 	}
 
@@ -378,7 +251,7 @@ static int sync_report_event_http(const char *event_type, const char *todo_id)
 	char event_at[40] = { 0 };
 	(void)environment_service_get_snapshot(&env);
 	(void)presence_service_get_status(&presence);
-	sync_format_now_iso(event_at, sizeof(event_at));
+	sync_transport_format_now_iso(event_at, sizeof(event_at));
 
 	char *body = sync_protocol_build_event_report(event_at, event_type, todo_id, &env, &presence);
 	if (body == NULL) {
@@ -387,7 +260,7 @@ static int sync_report_event_http(const char *event_type, const char *todo_id)
 
 	char response[64] = { 0 };
 	int status = 0;
-	int ret = sync_http_request("POST", APP_DEVICE_EVENTS_WEB_PATH, body, response, sizeof(response), &status);
+	int ret = sync_transport_http_request("POST", APP_DEVICE_EVENTS_WEB_PATH, body, response, sizeof(response), &status);
 	free(body);
 	return ret == 0 && status == 200 ? 0 : -1;
 }
@@ -500,7 +373,7 @@ static void sync_process_event_retries(void)
 
 static int sync_complete_todo_once(const char *todo_id)
 {
-	if (todo_id == NULL || todo_id[0] == '\0' || !sync_net_ready()) {
+	if (todo_id == NULL || todo_id[0] == '\0' || !sync_transport_net_ready()) {
 		return -1;
 	}
 
@@ -508,7 +381,7 @@ static int sync_complete_todo_once(const char *todo_id)
 	(void)snprintf(path, sizeof(path), "%s/%s/complete", APP_TODO_WEB_PATH, todo_id);
 	char response[256] = { 0 };
 	int status = 0;
-	int ret = sync_http_request("POST", path, NULL, response, sizeof(response), &status);
+	int ret = sync_transport_http_request("POST", path, NULL, response, sizeof(response), &status);
 	if (ret != 0 || (status != 200 && status != 404)) {
 		(void)snprintf(s_todo_snapshot.last_error, sizeof(s_todo_snapshot.last_error),
 			       "todo complete err=%d status=%d", ret, status);
@@ -520,14 +393,14 @@ static int sync_complete_todo_once(const char *todo_id)
 	s_todo_snapshot.sync_ok = true;
 	s_todo_snapshot.last_error[0] = '\0';
 	sync_touch_last_sync();
-	sync_todo_cache_save();
+	sync_todo_cache_save(&s_todo_snapshot);
 	sync_report_event_once("todo_completed", todo_id);
 	return 0;
 }
 
 static int sync_delete_todo_once(const char *todo_id)
 {
-	if (todo_id == NULL || todo_id[0] == '\0' || !sync_net_ready()) {
+	if (todo_id == NULL || todo_id[0] == '\0' || !sync_transport_net_ready()) {
 		return -1;
 	}
 
@@ -535,7 +408,7 @@ static int sync_delete_todo_once(const char *todo_id)
 	(void)snprintf(path, sizeof(path), "%s/%s", APP_TODO_WEB_PATH, todo_id);
 	char response[64] = { 0 };
 	int status = 0;
-	int ret = sync_http_request("DELETE", path, NULL, response, sizeof(response), &status);
+	int ret = sync_transport_http_request("DELETE", path, NULL, response, sizeof(response), &status);
 	if (ret != 0 || (status != 204 && status != 404)) {
 		(void)snprintf(s_todo_snapshot.last_error, sizeof(s_todo_snapshot.last_error),
 			       "todo delete err=%d status=%d", ret, status);
@@ -547,7 +420,7 @@ static int sync_delete_todo_once(const char *todo_id)
 	s_todo_snapshot.sync_ok = true;
 	s_todo_snapshot.last_error[0] = '\0';
 	sync_touch_last_sync();
-	sync_todo_cache_save();
+	sync_todo_cache_save(&s_todo_snapshot);
 	sync_report_event_once("todo_deleted", todo_id);
 	return 0;
 }
@@ -561,7 +434,7 @@ static void sync_handle_config_conflict(void)
 
 static int sync_push_alarm_settings_once(const app_settings_t *settings)
 {
-	if (settings == NULL || !sync_net_ready()) {
+	if (settings == NULL || !sync_transport_net_ready()) {
 		return -1;
 	}
 
@@ -573,7 +446,7 @@ static int sync_push_alarm_settings_once(const app_settings_t *settings)
 
 	char response[256] = { 0 };
 	int status = 0;
-	int ret = sync_http_request("PUT", "/api/device/alarms", body, response, sizeof(response), &status);
+	int ret = sync_transport_http_request("PUT", "/api/device/alarms", body, response, sizeof(response), &status);
 	free(body);
 	if (ret == 0 && status == 200) {
 		s_device_config_snapshot.settings = *settings;
@@ -592,7 +465,7 @@ static int sync_push_alarm_settings_once(const app_settings_t *settings)
 
 static int sync_push_voice_settings_once(const app_settings_t *settings)
 {
-	if (settings == NULL || !sync_net_ready()) {
+	if (settings == NULL || !sync_transport_net_ready()) {
 		return -1;
 	}
 
@@ -604,7 +477,7 @@ static int sync_push_voice_settings_once(const app_settings_t *settings)
 
 	char response[256] = { 0 };
 	int status = 0;
-	int ret = sync_http_request("PUT", "/api/device/voice-settings", body, response, sizeof(response), &status);
+	int ret = sync_transport_http_request("PUT", "/api/device/voice-settings", body, response, sizeof(response), &status);
 	free(body);
 	if (ret == 0 && status == 200) {
 		s_device_config_snapshot.settings = *settings;
@@ -761,7 +634,7 @@ int sync_service_init(void)
 		.config_version = 0,
 		.settings = defaults,
 	};
-	(void)sync_todo_cache_load();
+	(void)sync_todo_cache_load(&s_todo_snapshot);
 
 	if (s_request_queue == NULL) {
 		s_request_queue = xQueueCreate(SYNC_REQUEST_QUEUE_DEPTH, sizeof(sync_request_t));

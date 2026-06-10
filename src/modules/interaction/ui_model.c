@@ -1,13 +1,17 @@
 #include "app_module.h"
 #include <app_bus.h>
 #include <display_service.h>
-#include <environment_service.h>
 #include <module_common.h>
-#include <net_service.h>
 #include <presence_service.h>
 #include <settings_model.h>
 #include <sync_service.h>
+#include <ui_layout.h>
 #include <ui_model.h>
+#include <ui_pages.h>
+#include <ui_settings_pages.h>
+#include <ui_style.h>
+#include <ui_todo_view.h>
+#include <ui_types.h>
 
 #include <esp_log.h>
 #include <esp_timer.h>
@@ -23,66 +27,6 @@
 static const char *TAG = "ui";
 
 static void publish_settings_event(app_bus_event_type_t type, const app_settings_t *settings);
-
-#define UI_SCREEN_W 240
-#define UI_SCREEN_H 320
-#define UI_CONTENT_H 240
-#define UI_KEYBAR_Y 240
-#define UI_KEYBAR_H 80
-#define UI_TILE_W 120
-#define UI_TILE_H 120
-#define UI_KEY_W 60
-#define UI_MAX_ALARMS 5U
-#define UI_MAIN_PAGE_COUNT 6U
-#define UI_KEY_COUNT 4U
-
-#if defined(LV_FONT_MONTSERRAT_48) && LV_FONT_MONTSERRAT_48
-#define UI_FONT_48 (&lv_font_montserrat_48)
-#else
-#define UI_FONT_48 LV_FONT_DEFAULT
-#endif
-
-#if defined(LV_FONT_MONTSERRAT_40) && LV_FONT_MONTSERRAT_40
-#define UI_FONT_40 (&lv_font_montserrat_40)
-#else
-#define UI_FONT_40 UI_FONT_48
-#endif
-
-#if defined(LV_FONT_MONTSERRAT_36) && LV_FONT_MONTSERRAT_36
-#define UI_FONT_36 (&lv_font_montserrat_36)
-#else
-#define UI_FONT_36 UI_FONT_40
-#endif
-
-#if defined(LV_FONT_MONTSERRAT_32) && LV_FONT_MONTSERRAT_32
-#define UI_FONT_32 (&lv_font_montserrat_32)
-#else
-#define UI_FONT_32 UI_FONT_36
-#endif
-
-#if defined(LV_FONT_MONTSERRAT_30) && LV_FONT_MONTSERRAT_30
-#define UI_FONT_30 (&lv_font_montserrat_30)
-#else
-#define UI_FONT_30 UI_FONT_32
-#endif
-
-#if defined(LV_FONT_MONTSERRAT_24) && LV_FONT_MONTSERRAT_24
-#define UI_FONT_24 (&lv_font_montserrat_24)
-#else
-#define UI_FONT_24 UI_FONT_30
-#endif
-
-#if defined(LV_FONT_MONTSERRAT_20) && LV_FONT_MONTSERRAT_20
-#define UI_FONT_20 (&lv_font_montserrat_20)
-#else
-#define UI_FONT_20 LV_FONT_DEFAULT
-#endif
-
-#if defined(LV_FONT_MONTSERRAT_16) && LV_FONT_MONTSERRAT_16
-#define UI_FONT_16 (&lv_font_montserrat_16)
-#else
-#define UI_FONT_16 LV_FONT_DEFAULT
-#endif
 
 typedef enum {
 	UI_PAGE_HOME = 0,
@@ -111,14 +55,6 @@ typedef enum {
 	UI_KEY_NEXT_DOWN,
 	UI_KEY_OK,
 } ui_key_t;
-
-typedef struct {
-	uint8_t hour;
-	uint8_t minute;
-	bool repeat;
-	bool enabled;
-	bool voice;
-} ui_alarm_item_t;
 
 static QueueHandle_t s_key_queue;
 static TaskHandle_t s_ui_task;
@@ -154,195 +90,6 @@ static bool s_dirty = true;
 static int s_last_render_second = -1;
 static int64_t s_presence_absent_since_us;
 static int64_t s_presence_present_since_us;
-
-static lv_color_t c_black(void) { return lv_color_black(); }
-static lv_color_t c_white(void) { return lv_color_white(); }
-static lv_color_t c_blue(void) { return lv_color_hex(0x0057d8); }
-static lv_color_t c_orange(void) { return lv_color_hex(0xc95400); }
-static lv_color_t c_purple(void) { return lv_color_hex(0x5b2cbf); }
-static lv_color_t c_teal(void) { return lv_color_hex(0x007a99); }
-static lv_color_t c_green(void) { return lv_color_hex(0x16833a); }
-static lv_color_t c_dark(void) { return lv_color_hex(0x101418); }
-static lv_color_t c_gray(void) { return lv_color_hex(0x26313d); }
-static lv_color_t c_red(void) { return lv_color_hex(0xc31828); }
-static lv_color_t c_yellow(void) { return lv_color_hex(0xd19a00); }
-static lv_color_t c_humi(void) { return lv_color_hex(0x006f6a); }
-static lv_color_t c_lux(void) { return lv_color_hex(0x6e7300); }
-static lv_color_t c_ip(void) { return lv_color_hex(0x245a7a); }
-static lv_color_t c_sync(void) { return lv_color_hex(0x5d4e9d); }
-static lv_color_t c_todo_net(void) { return lv_color_hex(0x476600); }
-static lv_color_t c_panel(void) { return lv_color_hex(0x000000); }
-
-static lv_obj_t *label(lv_obj_t *parent, const char *text, const lv_font_t *font, lv_color_t color,
-		       int32_t x, int32_t y, int32_t w, int32_t h, lv_text_align_t align);
-
-static void obj_plain(lv_obj_t *obj, lv_color_t bg)
-{
-	lv_obj_remove_style_all(obj);
-	lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
-	lv_obj_set_style_bg_color(obj, bg, 0);
-	lv_obj_set_style_border_width(obj, 0, 0);
-	lv_obj_set_style_radius(obj, 0, 0);
-	lv_obj_set_style_pad_all(obj, 0, 0);
-	lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
-	lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
-}
-
-static lv_obj_t *box(lv_obj_t *parent, int32_t x, int32_t y, int32_t w, int32_t h, lv_color_t bg)
-{
-	lv_obj_t *obj = lv_obj_create(parent);
-	obj_plain(obj, bg);
-	lv_obj_set_pos(obj, x, y);
-	lv_obj_set_size(obj, w, h);
-	return obj;
-}
-
-static lv_obj_t *scroll_area(lv_obj_t *parent, int32_t x, int32_t y, int32_t w, int32_t h, lv_color_t bg)
-{
-	lv_obj_t *obj = box(parent, x, y, w, h, bg);
-	lv_obj_add_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
-	lv_obj_set_scroll_dir(obj, LV_DIR_VER);
-	lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_ON);
-	lv_obj_set_style_width(obj, 4, LV_PART_SCROLLBAR);
-	lv_obj_set_style_radius(obj, 0, LV_PART_SCROLLBAR);
-	lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_SCROLLBAR);
-	lv_obj_set_style_bg_color(obj, c_white(), LV_PART_SCROLLBAR);
-	return obj;
-}
-
-static lv_obj_t *titled_scroll_body(lv_obj_t *screen, const char *title, lv_color_t bg)
-{
-	box(screen, 0, 0, UI_SCREEN_W, UI_CONTENT_H, bg);
-	label(screen, title, UI_FONT_36, c_white(), 4, 4, 232, 44, LV_TEXT_ALIGN_CENTER);
-	return scroll_area(screen, 0, 50, UI_SCREEN_W, UI_CONTENT_H - 50, bg);
-}
-
-static lv_obj_t *label(lv_obj_t *parent, const char *text, const lv_font_t *font, lv_color_t color,
-		       int32_t x, int32_t y, int32_t w, int32_t h, lv_text_align_t align)
-{
-	lv_obj_t *obj = lv_label_create(parent);
-	lv_obj_remove_style_all(obj);
-	lv_obj_set_style_text_font(obj, font, 0);
-	lv_obj_set_style_text_color(obj, color, 0);
-	lv_obj_set_style_text_align(obj, align, 0);
-	lv_obj_set_style_pad_all(obj, 0, 0);
-	lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
-	lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
-	lv_label_set_long_mode(obj, LV_LABEL_LONG_DOT);
-	lv_label_set_text(obj, text);
-	lv_obj_set_pos(obj, x, y);
-	lv_obj_set_size(obj, w, h);
-	return obj;
-}
-
-static lv_obj_t *label_wrap(lv_obj_t *parent, const char *text, const lv_font_t *font, lv_color_t color,
-			    int32_t x, int32_t y, int32_t w, int32_t h, lv_text_align_t align)
-{
-	lv_obj_t *obj = label(parent, text, font, color, x, y, w, h, align);
-	lv_label_set_long_mode(obj, LV_LABEL_LONG_WRAP);
-	return obj;
-}
-
-static void format_time_period(char *out, size_t out_size, bool use_24h)
-{
-	time_t now = 0;
-	struct tm t = { 0 };
-	time(&now);
-	localtime_r(&now, &t);
-
-	if (out_size == 0U) {
-		return;
-	}
-	if (t.tm_year < (2024 - 1900) || use_24h) {
-		out[0] = '\0';
-		return;
-	}
-
-	snprintf(out, out_size, t.tm_hour < 12 ? "AM" : "PM");
-}
-
-static void format_time(char *out, size_t out_size, bool use_24h, bool with_seconds)
-{
-	time_t now = 0;
-	struct tm t = { 0 };
-	time(&now);
-	localtime_r(&now, &t);
-
-	if (t.tm_year < (2024 - 1900)) {
-		snprintf(out, out_size, with_seconds ? "--:--:--" : "--:--");
-		return;
-	}
-
-	if (use_24h) {
-		snprintf(out, out_size, with_seconds ? "%02d:%02d:%02d" : "%02d:%02d",
-			 t.tm_hour, t.tm_min, t.tm_sec);
-		return;
-	}
-
-	int hour = t.tm_hour % 12;
-	if (hour == 0) {
-		hour = 12;
-	}
-	snprintf(out, out_size, with_seconds ? "%02d:%02d:%02d" : "%02d:%02d", hour, t.tm_min, t.tm_sec);
-}
-
-static void format_date(char *out, size_t out_size)
-{
-	time_t now = 0;
-	struct tm t = { 0 };
-	time(&now);
-	localtime_r(&now, &t);
-
-	if (t.tm_year < (2024 - 1900)) {
-		snprintf(out, out_size, "NO TIME");
-		return;
-	}
-
-	snprintf(out, out_size, "%02d/%02d", t.tm_mon + 1, t.tm_mday);
-}
-
-static void format_alarm_time(const ui_alarm_item_t *alarm, char *out, size_t out_size)
-{
-	snprintf(out, out_size, "%02u:%02u", (unsigned)alarm->hour, (unsigned)alarm->minute);
-}
-
-static const ui_alarm_item_t *next_enabled_alarm(void)
-{
-	for (uint8_t i = 0; i < s_alarm_count; i++) {
-		if (s_alarms[i].enabled) {
-			return &s_alarms[i];
-		}
-	}
-	return NULL;
-}
-
-static uint8_t todo_item_count(const app_todo_snapshot_t *snapshot)
-{
-	return snapshot != NULL && snapshot->count < APP_TODO_MAX_ITEMS ? snapshot->count : APP_TODO_MAX_ITEMS;
-}
-
-static const app_todo_item_t *todo_item_at(const app_todo_snapshot_t *snapshot, uint8_t index)
-{
-	if (snapshot == NULL || index >= todo_item_count(snapshot)) {
-		return NULL;
-	}
-	return &snapshot->items[index];
-}
-
-static uint8_t todo_count(const app_todo_snapshot_t *snapshot)
-{
-	uint8_t count = 0;
-	if (snapshot == NULL) {
-		return 0;
-	}
-
-	for (uint8_t i = 0; i < snapshot->count && i < APP_TODO_MAX_ITEMS; i++) {
-		if (!snapshot->items[i].done) {
-			count++;
-		}
-	}
-	return count;
-}
 
 static void apply_settings(const app_settings_t *settings)
 {
@@ -510,378 +257,13 @@ static void sync_settings_from_model_for_main(void)
 	apply_settings(&settings);
 }
 
-static void render_home(lv_obj_t *screen)
-{
-	char time_text[16];
-	char period_text[4];
-	char date_text[16];
-	app_todo_snapshot_t todo = { 0 };
-	(void)sync_service_get_todo_snapshot(&todo);
-	format_time(time_text, sizeof(time_text), s_use_24h, false);
-	format_time_period(period_text, sizeof(period_text), s_use_24h);
-	format_date(date_text, sizeof(date_text));
-
-	if (s_home_clock_only) {
-		box(screen, 0, 0, UI_SCREEN_W, UI_CONTENT_H, c_blue());
-		label(screen, time_text, UI_FONT_48, c_white(), s_use_24h ? 2 : 10, 62, s_use_24h ? 236 : 188, 64,
-		      LV_TEXT_ALIGN_CENTER);
-		if (!s_use_24h) {
-			label(screen, period_text, UI_FONT_24, c_white(), 190, 82, 42, 26, LV_TEXT_ALIGN_LEFT);
-		}
-		label(screen, date_text, UI_FONT_30, c_white(), 2, 134, 236, 40, LV_TEXT_ALIGN_CENTER);
-		return;
-	}
-
-	box(screen, 0, 0, UI_SCREEN_W, UI_TILE_H, c_blue());
-	label(screen, time_text, UI_FONT_48, c_white(), s_use_24h ? 2 : 10, 22, s_use_24h ? 236 : 188, 62,
-	      LV_TEXT_ALIGN_CENTER);
-	if (!s_use_24h) {
-		label(screen, period_text, UI_FONT_24, c_white(), 190, 42, 42, 26, LV_TEXT_ALIGN_LEFT);
-	}
-	label(screen, date_text, UI_FONT_24, c_white(), 2, 82, 236, 32, LV_TEXT_ALIGN_CENTER);
-
-	box(screen, 0, UI_TILE_H, UI_TILE_W, UI_TILE_H, c_orange());
-	label(screen, LV_SYMBOL_BELL, UI_FONT_32, c_white(), 2, UI_TILE_H + 10, 116, 36, LV_TEXT_ALIGN_CENTER);
-	const ui_alarm_item_t *alarm = next_enabled_alarm();
-	char alarm_text[16];
-	if (alarm != NULL) {
-		format_alarm_time(alarm, alarm_text, sizeof(alarm_text));
-	} else {
-		snprintf(alarm_text, sizeof(alarm_text), "--:--");
-	}
-	label(screen, alarm_text, UI_FONT_40, c_white(), 2, UI_TILE_H + 58, 116, 50, LV_TEXT_ALIGN_CENTER);
-
-	box(screen, UI_TILE_W, UI_TILE_H, UI_TILE_W, UI_TILE_H, c_purple());
-	label(screen, LV_SYMBOL_OK, UI_FONT_32, c_white(), UI_TILE_W + 2, UI_TILE_H + 10, 116, 36,
-	      LV_TEXT_ALIGN_CENTER);
-	char count_text[8];
-	snprintf(count_text, sizeof(count_text), "%u", (unsigned)todo_count(&todo));
-	label(screen, count_text, UI_FONT_40, c_white(), UI_TILE_W + 2, UI_TILE_H + 58, 116, 50,
-	      LV_TEXT_ALIGN_CENTER);
-}
-
-static void render_alarm_page(lv_obj_t *screen)
-{
-	lv_obj_t *area = titled_scroll_body(screen, "ALARM", c_orange());
-	if (s_alarm_count > 0U && s_alarm_page_focus >= s_alarm_count) {
-		s_alarm_page_focus = 0;
-	}
-
-	for (uint8_t i = 0; i < s_alarm_count; i++) {
-		char text[32];
-		char time_text[16];
-		format_alarm_time(&s_alarms[i], time_text, sizeof(time_text));
-		snprintf(text, sizeof(text), "%s %s", time_text, s_alarms[i].enabled ? "ON" : "OFF");
-		const bool selected = i == s_alarm_page_focus;
-		lv_color_t bg = selected ? c_white() : lv_color_hex(0x9f4300);
-		lv_color_t fg = selected ? c_black() : c_white();
-		box(area, 4, 4 + i * 62, 228, 52, bg);
-		label(area, text, UI_FONT_36, fg, 8, 11 + i * 62, 220, 42, LV_TEXT_ALIGN_CENTER);
-	}
-
-	if (s_alarm_count == 0U) {
-		label(area, "NO ALARM", UI_FONT_40, c_white(), 4, 44, 232, 50, LV_TEXT_ALIGN_CENTER);
-	}
-	if (s_alarm_count > 0U) {
-		lv_obj_scroll_to_y(area, s_alarm_page_focus * 62, LV_ANIM_OFF);
-	}
-}
-
-static void render_todo_page(lv_obj_t *screen)
-{
-	app_todo_snapshot_t todo = { 0 };
-	(void)sync_service_get_todo_snapshot(&todo);
-	lv_obj_t *area = titled_scroll_body(screen, "TODO", c_purple());
-
-	uint8_t shown = 0;
-	for (uint8_t i = 0; i < todo.count && i < APP_TODO_MAX_ITEMS; i++) {
-		const bool selected = shown == s_todo_page_focus;
-		lv_color_t bg = selected ? c_white() : lv_color_hex(0x3f1f86);
-		lv_color_t fg = selected ? c_black() : c_white();
-		box(area, 4, 4 + shown * 62, 228, 52, bg);
-		char text[112];
-		snprintf(text, sizeof(text), "%s %s", todo.items[i].done ? LV_SYMBOL_OK : LV_SYMBOL_MINUS,
-			 todo.items[i].text[0] != '\0' ? todo.items[i].text : "(empty)");
-		label_wrap(area, text, UI_FONT_24, fg, 8, 9 + shown * 62, 220, 42, LV_TEXT_ALIGN_LEFT);
-		shown++;
-	}
-
-	{
-		const bool selected = shown == s_todo_page_focus;
-		lv_color_t bg = selected ? c_white() : lv_color_hex(0x3f1f86);
-		lv_color_t fg = selected ? c_black() : c_white();
-		box(area, 4, 4 + shown * 62, 228, 52, bg);
-		label(area, LV_SYMBOL_SETTINGS " SETTINGS", UI_FONT_24, fg, 8, 15 + shown * 62, 220, 30,
-		      LV_TEXT_ALIGN_LEFT);
-		shown++;
-	}
-
-	if (shown == 1U && todo_item_count(&todo) == 0U && todo.sync_in_progress) {
-		label(area, "SYNCING", UI_FONT_40, c_white(), 4, 70, 232, 50, LV_TEXT_ALIGN_CENTER);
-	}
-	if (s_todo_page_focus >= shown) {
-		s_todo_page_focus = 0;
-	}
-	lv_obj_scroll_to_y(area, s_todo_page_focus * 62, LV_ANIM_OFF);
-}
-
-static void render_env_page(lv_obj_t *screen)
-{
-	app_environment_snapshot_t env = { 0 };
-	app_presence_status_t presence = { 0 };
-	const bool ok = environment_service_get_snapshot(&env);
-	const bool presence_ok = presence_service_get_status(&presence);
-	char temp[16];
-	char humi[16];
-	char lux[16];
-	char radar[16];
-	snprintf(temp, sizeof(temp), ok && env.dht11_valid ? "%.0fC" : "--C", env.temperature_c);
-	snprintf(humi, sizeof(humi), ok && env.dht11_valid ? "%.0f%%" : "--%%", env.humidity_percent);
-	snprintf(lux, sizeof(lux), ok && env.bh1750_valid ? "%.0f" : "--", env.lux);
-	snprintf(radar, sizeof(radar), presence_ok && presence.radar_healthy ? (presence.detected ? "PRES" : "NONE") :
-									(presence.detected ? "OUT" : "ERR"));
-
-	const bool temp_alert = s_env_alert_on && ok && env.dht11_valid &&
-				(env.temperature_c < (float)s_env_temp_low_c ||
-				 env.temperature_c > (float)s_env_temp_high_c);
-	const bool humi_alert = s_env_alert_on && ok && env.dht11_valid &&
-				(env.humidity_percent < (float)s_env_humi_low_percent ||
-				 env.humidity_percent > (float)s_env_humi_high_percent);
-	const bool lux_alert = s_env_alert_on && ok && env.bh1750_valid &&
-			       (env.lux < (float)s_env_lux_low || env.lux > (float)s_env_lux_high);
-
-	box(screen, 0, 0, UI_TILE_W, UI_TILE_H, temp_alert ? c_red() : c_green());
-	label(screen, "TEMP", UI_FONT_24, c_white(), 2, 8, 116, 30, LV_TEXT_ALIGN_CENTER);
-	label(screen, temp, UI_FONT_40, c_white(), 2, 58, 116, 50, LV_TEXT_ALIGN_CENTER);
-
-	box(screen, UI_TILE_W, 0, UI_TILE_W, UI_TILE_H, humi_alert ? c_red() : c_humi());
-	label(screen, "HUMI", UI_FONT_24, c_white(), UI_TILE_W + 2, 8, 116, 30, LV_TEXT_ALIGN_CENTER);
-	label(screen, humi, UI_FONT_40, c_white(), UI_TILE_W + 2, 58, 116, 50, LV_TEXT_ALIGN_CENTER);
-
-	box(screen, 0, UI_TILE_H, UI_TILE_W, UI_TILE_H, lux_alert ? c_red() : c_lux());
-	label(screen, "LUX", UI_FONT_24, c_white(), 2, UI_TILE_H + 8, 116, 30, LV_TEXT_ALIGN_CENTER);
-	label(screen, lux, UI_FONT_40, c_white(), 2, UI_TILE_H + 58, 116, 50, LV_TEXT_ALIGN_CENTER);
-
-	box(screen, UI_TILE_W, UI_TILE_H, UI_TILE_W, UI_TILE_H, presence_ok && presence.radar_healthy ? c_red() : c_gray());
-	label(screen, "RADAR", UI_FONT_24, c_white(), UI_TILE_W + 2, UI_TILE_H + 8, 116, 30, LV_TEXT_ALIGN_CENTER);
-	label(screen, radar, UI_FONT_24, c_white(), UI_TILE_W + 2, UI_TILE_H + 58, 116, 50,
-	      LV_TEXT_ALIGN_CENTER);
-}
-
-static void render_wifi_page(lv_obj_t *screen)
-{
-	app_net_status_t net = { 0 };
-	app_todo_snapshot_t todo = { 0 };
-	(void)net_service_get_status(&net);
-	(void)sync_service_get_todo_snapshot(&todo);
-
-	box(screen, 0, 0, UI_TILE_W, UI_TILE_H, net.wifi_connected ? c_teal() : c_gray());
-	label(screen, "WIFI", UI_FONT_24, c_white(), 2, 8, 116, 30, LV_TEXT_ALIGN_CENTER);
-	label(screen, net.wifi_connected ? "ON" : "OFF", UI_FONT_24, c_white(), 2, 58, 116, 56, LV_TEXT_ALIGN_CENTER);
-
-	box(screen, UI_TILE_W, 0, UI_TILE_W, UI_TILE_H, c_ip());
-	label(screen, "IP", UI_FONT_24, c_white(), UI_TILE_W + 2, 8, 116, 30, LV_TEXT_ALIGN_CENTER);
-	char ip_text[24];
-	if (net.ip_ready) {
-		unsigned a = 0;
-		unsigned b = 0;
-		unsigned c = 0;
-		unsigned d = 0;
-		if (sscanf(net.ip_addr, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
-			snprintf(ip_text, sizeof(ip_text), "%u.%u\n%u.%u", a, b, c, d);
-		} else {
-			snprintf(ip_text, sizeof(ip_text), "%s", net.ip_addr);
-		}
-	} else {
-		snprintf(ip_text, sizeof(ip_text), "--");
-	}
-	label(screen, ip_text, UI_FONT_24, c_white(), UI_TILE_W + 2, 52, 116, 62, LV_TEXT_ALIGN_CENTER);
-
-	box(screen, 0, UI_TILE_H, UI_TILE_W, UI_TILE_H, net.time_synced ? c_sync() : c_orange());
-	label(screen, "TIME", UI_FONT_24, c_white(), 2, UI_TILE_H + 8, 116, 30, LV_TEXT_ALIGN_CENTER);
-	label(screen, net.time_synced ? "SYNC" : "WAIT", UI_FONT_24, c_white(), 2, UI_TILE_H + 58, 116, 56,
-	      LV_TEXT_ALIGN_CENTER);
-
-	box(screen, UI_TILE_W, UI_TILE_H, UI_TILE_W, UI_TILE_H, todo.sync_ok ? c_todo_net() : c_red());
-	label(screen, "TODO", UI_FONT_24, c_white(), UI_TILE_W + 2, UI_TILE_H + 8, 116, 30, LV_TEXT_ALIGN_CENTER);
-	label(screen, todo.sync_in_progress ? "..." : (todo.sync_ok ? "OK" : "ERR"), UI_FONT_24, c_white(),
-	      UI_TILE_W + 2, UI_TILE_H + 58, 116, 56, LV_TEXT_ALIGN_CENTER);
-}
-
-static void render_low_clock(lv_obj_t *screen)
-{
-	char time_text[16];
-	char period_text[4];
-	char date_text[16];
-	format_time(time_text, sizeof(time_text), s_low_use_24h, true);
-	format_time_period(period_text, sizeof(period_text), s_low_use_24h);
-	format_date(date_text, sizeof(date_text));
-	box(screen, 0, 0, UI_SCREEN_W, UI_CONTENT_H, c_black());
-	label(screen, time_text, UI_FONT_40, c_white(), s_low_use_24h ? 2 : 8, 66, s_low_use_24h ? 236 : 190, 54,
-	      LV_TEXT_ALIGN_CENTER);
-	if (!s_low_use_24h) {
-		label(screen, period_text, UI_FONT_20, c_gray(), 192, 84, 40, 22, LV_TEXT_ALIGN_LEFT);
-	}
-	label(screen, date_text, UI_FONT_24, c_gray(), 2, 132, 236, 32, LV_TEXT_ALIGN_CENTER);
-}
-
-static void render_row(lv_obj_t *parent, uint8_t row, const char *text, bool selected)
-{
-	const int32_t y = 4 + row * 44;
-	box(parent, 4, y, 228, 38, selected ? c_yellow() : c_panel());
-	label(parent, text, UI_FONT_24, selected ? c_black() : c_white(), 8, y + 5, 220, 30, LV_TEXT_ALIGN_LEFT);
-}
-
-static lv_obj_t *render_settings_area(lv_obj_t *screen, const char *title, lv_color_t bg)
-{
-	box(screen, 0, 0, UI_SCREEN_W, UI_CONTENT_H, bg);
-	label(screen, title, UI_FONT_32, c_white(), 4, 4, 232, 40, LV_TEXT_ALIGN_CENTER);
-	return scroll_area(screen, 0, 48, UI_SCREEN_W, UI_CONTENT_H - 48, bg);
-}
-
-static void scroll_focus_into_view(lv_obj_t *area, uint8_t focus)
-{
-	const int32_t row_y = 4 + focus * 44;
-	int32_t scroll_y = row_y - 52;
-	if (scroll_y < 0) {
-		scroll_y = 0;
-	}
-	lv_obj_scroll_to_y(area, scroll_y, LV_ANIM_OFF);
-}
-
-static void render_home_settings(lv_obj_t *screen)
-{
-	lv_obj_t *area = render_settings_area(screen, "HOME SET", c_blue());
-	render_row(area, 0, s_home_clock_only ? "LAYOUT CLOCK" : "LAYOUT FULL", s_focus == 0U);
-	render_row(area, 1, s_use_24h ? "FORMAT 24H" : "FORMAT 12H", s_focus == 1U);
-	render_row(area, 2, s_home_hour_chime_on ? "HOUR TONE ON" : "HOUR TONE OFF", s_focus == 2U);
-	scroll_focus_into_view(area, s_focus);
-}
-
-static void render_alarm_settings(lv_obj_t *screen)
-{
-	lv_obj_t *area = render_settings_area(screen, "ALARM SET", c_orange());
-	render_row(area, 0, s_alarm_voice_on ? "VOICE ON" : "VOICE OFF", s_focus == 0U);
-	render_row(area, 1, "TEST VOICE", s_focus == 1U);
-	render_row(area, 2, "ADD ALARM", s_focus == 2U);
-	render_row(area, 3, "DELETE LAST", s_focus == 3U);
-
-	for (uint8_t i = 0; i < s_alarm_count; i++) {
-		char text[32];
-		char time_text[16];
-		format_alarm_time(&s_alarms[i], time_text, sizeof(time_text));
-		snprintf(text, sizeof(text), "%u  %s %s", (unsigned)(i + 1), time_text,
-			 s_alarms[i].enabled ? "ON" : "OFF");
-		render_row(area, (uint8_t)(4U + i), text, s_focus == (uint8_t)(4U + i));
-	}
-	scroll_focus_into_view(area, s_focus);
-}
-
-static void render_alarm_item(lv_obj_t *screen)
-{
-	lv_obj_t *area = render_settings_area(screen, "ALARM ITEM", c_orange());
-	ui_alarm_item_t *alarm = &s_alarms[s_alarm_selected];
-	char time_text[24];
-	format_alarm_time(alarm, time_text, sizeof(time_text));
-	char row[32];
-	snprintf(row, sizeof(row), "TIME %s", time_text);
-	render_row(area, 0, row, s_focus == 0U);
-	render_row(area, 1, alarm->repeat ? "REPEAT ON" : "REPEAT OFF", s_focus == 1U);
-	render_row(area, 2, alarm->voice ? "VOICE ON" : "VOICE OFF", s_focus == 2U);
-	render_row(area, 3, alarm->enabled ? "ENABLE ON" : "ENABLE OFF", s_focus == 3U);
-	scroll_focus_into_view(area, s_focus);
-}
-
-static void render_todo_settings(lv_obj_t *screen)
-{
-	lv_obj_t *area = render_settings_area(screen, "TODO SET", c_purple());
-	render_row(area, 0, "SYNC NOW", s_focus == 0U);
-	render_row(area, 1, "PULL 30S", s_focus == 1U);
-	render_row(area, 2, s_todo_voice_on ? "VOICE ON" : "VOICE OFF", s_focus == 2U);
-	render_row(area, 3, "TEST VOICE", s_focus == 3U);
-	scroll_focus_into_view(area, s_focus);
-}
-
-static void render_todo_item(lv_obj_t *screen)
-{
-	app_todo_snapshot_t todo = { 0 };
-	(void)sync_service_get_todo_snapshot(&todo);
-	const app_todo_item_t *item = todo_item_at(&todo, s_todo_selected);
-	lv_obj_t *area = render_settings_area(screen, "TODO ITEM", c_purple());
-
-	if (item == NULL) {
-		render_row(area, 0, "ITEM MISSING", true);
-		return;
-	}
-
-	char title[64];
-	snprintf(title, sizeof(title), "%.40s", item->text[0] != '\0' ? item->text : "(empty)");
-	label_wrap(area, title, UI_FONT_20, c_white(), 8, 4, 224, 38, LV_TEXT_ALIGN_LEFT);
-	render_row(area, 1, item->done ? "UNDO DONE" : "MARK DONE", s_focus == 0U);
-	render_row(area, 2, "DELETE", s_focus == 1U);
-	scroll_focus_into_view(area, s_focus);
-}
-
-static void render_todo_delete_confirm(lv_obj_t *screen)
-{
-	app_todo_snapshot_t todo = { 0 };
-	(void)sync_service_get_todo_snapshot(&todo);
-	const app_todo_item_t *item = todo_item_at(&todo, s_todo_selected);
-	lv_obj_t *area = render_settings_area(screen, "DELETE?", c_red());
-	char title[64];
-
-	snprintf(title, sizeof(title), "%.40s", item != NULL && item->text[0] != '\0' ? item->text : "TODO ITEM");
-	label_wrap(area, title, UI_FONT_20, c_white(), 8, 4, 224, 38, LV_TEXT_ALIGN_LEFT);
-	render_row(area, 1, "CONFIRM DELETE", s_focus == 0U);
-	render_row(area, 2, "CANCEL", s_focus == 1U);
-	scroll_focus_into_view(area, s_focus);
-}
-
-static void render_env_settings(lv_obj_t *screen)
-{
-	lv_obj_t *area = render_settings_area(screen, "ENV SET", c_green());
-	render_row(area, 0, s_env_voice_on ? "VOICE ON" : "VOICE OFF", s_focus == 0U);
-	render_row(area, 1, "TEST VOICE", s_focus == 1U);
-	char sample[32];
-	snprintf(sample, sizeof(sample), "SAMPLE %uS", (unsigned)s_env_sample_s);
-	render_row(area, 2, sample, s_focus == 2U);
-	char row[32];
-	snprintf(row, sizeof(row), "T LOW %dC", (int)s_env_temp_low_c);
-	render_row(area, 3, row, s_focus == 3U);
-	snprintf(row, sizeof(row), "T HIGH %dC", (int)s_env_temp_high_c);
-	render_row(area, 4, row, s_focus == 4U);
-	snprintf(row, sizeof(row), "H LOW %u%%", (unsigned)s_env_humi_low_percent);
-	render_row(area, 5, row, s_focus == 5U);
-	snprintf(row, sizeof(row), "H HIGH %u%%", (unsigned)s_env_humi_high_percent);
-	render_row(area, 6, row, s_focus == 6U);
-	snprintf(row, sizeof(row), "L LOW %u", (unsigned)s_env_lux_low);
-	render_row(area, 7, row, s_focus == 7U);
-	snprintf(row, sizeof(row), "L HIGH %u", (unsigned)s_env_lux_high);
-	render_row(area, 8, row, s_focus == 8U);
-	render_row(area, 9, s_env_alert_on ? "ALERT ON" : "ALERT OFF", s_focus == 9U);
-	scroll_focus_into_view(area, s_focus);
-}
-
-static void render_low_settings(lv_obj_t *screen)
-{
-	lv_obj_t *area = render_settings_area(screen, "CLOCK SET", c_dark());
-	char enter_text[32];
-	char exit_text[32];
-	snprintf(enter_text, sizeof(enter_text), "ENTER %uS", (unsigned)s_low_enter_absent_s);
-	snprintf(exit_text, sizeof(exit_text), "EXIT %uS", (unsigned)s_low_exit_present_s);
-	render_row(area, 0, s_low_use_24h ? "FORMAT 24H" : "FORMAT 12H", s_focus == 0U);
-	render_row(area, 1, enter_text, s_focus == 1U);
-	render_row(area, 2, exit_text, s_focus == 2U);
-	scroll_focus_into_view(area, s_focus);
-}
-
 static const char *ok_icon_for_view(void)
 {
 	if (s_view == UI_VIEW_MAIN) {
 		if (s_main_page == UI_PAGE_TODO) {
 			app_todo_snapshot_t todo = { 0 };
 			(void)sync_service_get_todo_snapshot(&todo);
-			return s_todo_page_focus < todo_item_count(&todo) ? LV_SYMBOL_OK : LV_SYMBOL_SETTINGS;
+			return s_todo_page_focus < ui_todo_item_count(&todo) ? LV_SYMBOL_OK : LV_SYMBOL_SETTINGS;
 		}
 		return s_main_page == UI_PAGE_WIFI ? LV_SYMBOL_CLOSE : LV_SYMBOL_SETTINGS;
 	}
@@ -900,8 +282,8 @@ static void render_keybar(lv_obj_t *screen)
 	};
 
 	for (size_t i = 0; i < UI_KEY_COUNT; i++) {
-		box(screen, (int32_t)(i * UI_KEY_W), UI_KEYBAR_Y, UI_KEY_W, UI_KEYBAR_H, c_black());
-		label(screen, icons[i], UI_FONT_32, c_white(), (int32_t)(i * UI_KEY_W), UI_KEYBAR_Y + 22,
+		ui_box(screen, (int32_t)(i * UI_KEY_W), UI_KEYBAR_Y, UI_KEY_W, UI_KEYBAR_H, ui_color_black());
+		ui_label(screen, icons[i], UI_FONT_32, ui_color_white(), (int32_t)(i * UI_KEY_W), UI_KEYBAR_Y + 22,
 		      UI_KEY_W, 40, LV_TEXT_ALIGN_CENTER);
 	}
 }
@@ -914,48 +296,90 @@ static void render_ui(void)
 	}
 
 	lv_obj_clean(screen);
-	obj_plain(screen, c_black());
+	ui_obj_plain(screen, ui_color_black());
 	lv_obj_set_size(screen, UI_SCREEN_W, UI_SCREEN_H);
 
 	if (s_view == UI_VIEW_MAIN) {
+		ui_pages_state_t pages = {
+			.home_clock_only = s_home_clock_only,
+			.use_24h = s_use_24h,
+			.low_use_24h = s_low_use_24h,
+			.env_alert_on = s_env_alert_on,
+			.env_temp_low_c = s_env_temp_low_c,
+			.env_temp_high_c = s_env_temp_high_c,
+			.env_humi_low_percent = s_env_humi_low_percent,
+			.env_humi_high_percent = s_env_humi_high_percent,
+			.env_lux_low = s_env_lux_low,
+			.env_lux_high = s_env_lux_high,
+			.alarms = s_alarms,
+			.alarm_count = s_alarm_count,
+			.alarm_page_focus = &s_alarm_page_focus,
+			.todo_page_focus = &s_todo_page_focus,
+		};
 		switch (s_main_page) {
 		case UI_PAGE_HOME:
-			render_home(screen);
+			ui_pages_render_home(screen, &pages);
 			break;
 		case UI_PAGE_ALARM:
-			render_alarm_page(screen);
+			ui_pages_render_alarm(screen, &pages);
 			break;
 		case UI_PAGE_TODO:
-			render_todo_page(screen);
+			ui_pages_render_todo(screen, &pages);
 			break;
 		case UI_PAGE_ENV:
-			render_env_page(screen);
+			ui_pages_render_env(screen, &pages);
 			break;
 		case UI_PAGE_WIFI:
-			render_wifi_page(screen);
+			ui_pages_render_wifi(screen);
 			break;
 		case UI_PAGE_LOW_CLOCK:
-			render_low_clock(screen);
+			ui_pages_render_low_clock(screen, &pages);
 			break;
 		default:
 			break;
 		}
-	} else if (s_view == UI_VIEW_HOME_SETTINGS) {
-		render_home_settings(screen);
-	} else if (s_view == UI_VIEW_ALARM_SETTINGS) {
-		render_alarm_settings(screen);
-	} else if (s_view == UI_VIEW_ALARM_ITEM) {
-		render_alarm_item(screen);
-	} else if (s_view == UI_VIEW_TODO_SETTINGS) {
-		render_todo_settings(screen);
-	} else if (s_view == UI_VIEW_TODO_ITEM) {
-		render_todo_item(screen);
-	} else if (s_view == UI_VIEW_TODO_DELETE_CONFIRM) {
-		render_todo_delete_confirm(screen);
-	} else if (s_view == UI_VIEW_ENV_SETTINGS) {
-		render_env_settings(screen);
-	} else if (s_view == UI_VIEW_LOW_SETTINGS) {
-		render_low_settings(screen);
+	} else {
+		ui_settings_pages_state_t settings_pages = {
+			.focus = s_focus,
+			.home_clock_only = s_home_clock_only,
+			.use_24h = s_use_24h,
+			.low_use_24h = s_low_use_24h,
+			.home_hour_chime_on = s_home_hour_chime_on,
+			.alarm_voice_on = s_alarm_voice_on,
+			.todo_voice_on = s_todo_voice_on,
+			.env_voice_on = s_env_voice_on,
+			.env_alert_on = s_env_alert_on,
+			.env_sample_s = s_env_sample_s,
+			.env_temp_low_c = s_env_temp_low_c,
+			.env_temp_high_c = s_env_temp_high_c,
+			.env_humi_low_percent = s_env_humi_low_percent,
+			.env_humi_high_percent = s_env_humi_high_percent,
+			.env_lux_low = s_env_lux_low,
+			.env_lux_high = s_env_lux_high,
+			.low_enter_absent_s = s_low_enter_absent_s,
+			.low_exit_present_s = s_low_exit_present_s,
+			.alarms = s_alarms,
+			.alarm_count = s_alarm_count,
+			.alarm_selected = s_alarm_selected,
+			.todo_selected = s_todo_selected,
+		};
+		if (s_view == UI_VIEW_HOME_SETTINGS) {
+			ui_settings_pages_render_home(screen, &settings_pages);
+		} else if (s_view == UI_VIEW_ALARM_SETTINGS) {
+			ui_settings_pages_render_alarm(screen, &settings_pages);
+		} else if (s_view == UI_VIEW_ALARM_ITEM) {
+			ui_settings_pages_render_alarm_item(screen, &settings_pages);
+		} else if (s_view == UI_VIEW_TODO_SETTINGS) {
+			ui_settings_pages_render_todo(screen, &settings_pages);
+		} else if (s_view == UI_VIEW_TODO_ITEM) {
+			ui_settings_pages_render_todo_item(screen, &settings_pages);
+		} else if (s_view == UI_VIEW_TODO_DELETE_CONFIRM) {
+			ui_settings_pages_render_todo_delete_confirm(screen, &settings_pages);
+		} else if (s_view == UI_VIEW_ENV_SETTINGS) {
+			ui_settings_pages_render_env(screen, &settings_pages);
+		} else if (s_view == UI_VIEW_LOW_SETTINGS) {
+			ui_settings_pages_render_low(screen, &settings_pages);
+		}
 	}
 
 	render_keybar(screen);
@@ -1214,7 +638,7 @@ static void process_ok_in_settings(void)
 	if (s_view == UI_VIEW_TODO_ITEM) {
 		app_todo_snapshot_t todo = { 0 };
 		(void)sync_service_get_todo_snapshot(&todo);
-		const app_todo_item_t *item = todo_item_at(&todo, s_todo_selected);
+		const app_todo_item_t *item = ui_todo_item_at(&todo, s_todo_selected);
 		if (item == NULL) {
 			s_view = UI_VIEW_MAIN;
 			return;
@@ -1235,7 +659,7 @@ static void process_ok_in_settings(void)
 	if (s_view == UI_VIEW_TODO_DELETE_CONFIRM) {
 		app_todo_snapshot_t todo = { 0 };
 		(void)sync_service_get_todo_snapshot(&todo);
-		const app_todo_item_t *item = todo_item_at(&todo, s_todo_selected);
+		const app_todo_item_t *item = ui_todo_item_at(&todo, s_todo_selected);
 		if (s_focus == 0U && item != NULL) {
 			int ret = publish_todo_action(APP_BUS_EVENT_TODO_DELETE_REQUEST, item->id);
 			ESP_LOGI(TAG, "todo delete requested id=%s ret=%d", item->id, ret);
@@ -1399,7 +823,7 @@ static void process_key(size_t key_index)
 			} else if (s_main_page == UI_PAGE_TODO) {
 				app_todo_snapshot_t todo = { 0 };
 				(void)sync_service_get_todo_snapshot(&todo);
-				const uint8_t count = (uint8_t)(todo_item_count(&todo) + 1U);
+				const uint8_t count = (uint8_t)(ui_todo_item_count(&todo) + 1U);
 				if (count > 0U) {
 					s_todo_page_focus = (uint8_t)((s_todo_page_focus + 1U) % count);
 				}
@@ -1417,7 +841,7 @@ static void process_key(size_t key_index)
 			if (s_main_page == UI_PAGE_TODO) {
 				app_todo_snapshot_t todo = { 0 };
 				(void)sync_service_get_todo_snapshot(&todo);
-				const uint8_t item_count = todo_item_count(&todo);
+				const uint8_t item_count = ui_todo_item_count(&todo);
 				if (s_todo_page_focus < item_count) {
 					s_todo_selected = s_todo_page_focus;
 					s_view = UI_VIEW_TODO_ITEM;
