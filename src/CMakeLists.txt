@@ -11,6 +11,7 @@ idf_component_register(
     "modules/config/settings_model.c"
     "modules/config/settings_storage.c"
     "modules/config/persistence_broker.c"
+    "modules/interaction/input_gpio.c"
     "modules/interaction/input_service.c"
     "modules/interaction/ui_actions.c"
     "modules/interaction/ui_alarm_view.c"
