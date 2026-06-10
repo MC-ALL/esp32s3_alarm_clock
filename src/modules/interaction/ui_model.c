@@ -2,8 +2,8 @@
 #include <app_bus.h>
 #include <display_service.h>
 #include <module_common.h>
-#include <presence_service.h>
 #include <ui_actions.h>
+#include <ui_low_clock_runtime.h>
 #include <ui_model.h>
 #include <ui_navigation.h>
 #include <ui_renderer.h>
@@ -12,7 +12,6 @@
 #include <ui_types.h>
 
 #include <esp_log.h>
-#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
@@ -30,12 +29,10 @@ static uint8_t s_alarm_selected;
 static uint8_t s_alarm_page_focus;
 static uint8_t s_todo_page_focus;
 static uint8_t s_todo_selected;
-static bool s_low_clock_auto_entered;
+static ui_low_clock_runtime_t s_low_clock_runtime;
 static ui_settings_store_state_t s_settings;
 static bool s_dirty = true;
 static int s_last_render_second = -1;
-static int64_t s_presence_absent_since_us;
-static int64_t s_presence_present_since_us;
 
 static void save_settings(void)
 {
@@ -96,57 +93,29 @@ static void render_ui(void)
 
 static void update_low_clock_presence_runtime(void)
 {
-	app_presence_status_t presence = { 0 };
-	if (!presence_service_get_status(&presence)) {
+	ui_low_clock_result_t result = { 0 };
+	ui_low_clock_action_t action =
+		ui_low_clock_runtime_update(&s_low_clock_runtime, &s_main_page, s_view,
+					    s_settings.low_enter_absent_s,
+					    s_settings.low_exit_present_s, &result);
+	if (action == UI_LOW_CLOCK_ACTION_ENTER) {
+		s_dirty = true;
+		ESP_LOGI(TAG, "enter low clock absent_s=%" PRIi64 " threshold=%u healthy=%d fallback=%d",
+			 result.duration_s,
+			 (unsigned)result.threshold_s,
+			 result.presence.radar_healthy ? 1 : 0,
+			 result.presence.using_out_fallback ? 1 : 0);
 		return;
 	}
 
-	const int64_t now_us = esp_timer_get_time();
-	if (presence.detected) {
-		s_presence_absent_since_us = 0;
-		if (s_presence_present_since_us == 0) {
-			s_presence_present_since_us = now_us;
-		}
-	} else {
-		s_presence_present_since_us = 0;
-		if (s_presence_absent_since_us == 0) {
-			s_presence_absent_since_us = now_us;
-		}
-	}
-
-	if (s_view != UI_VIEW_MAIN) {
-		return;
-	}
-
-	if (s_main_page != UI_PAGE_LOW_CLOCK && !presence.detected && s_presence_absent_since_us > 0) {
-		const int64_t absent_s = (now_us - s_presence_absent_since_us) / 1000000LL;
-		if (absent_s >= (int64_t)s_settings.low_enter_absent_s) {
-			s_main_page = UI_PAGE_LOW_CLOCK;
-			s_low_clock_auto_entered = true;
-			s_dirty = true;
-			ESP_LOGI(TAG, "enter low clock absent_s=%" PRIi64 " threshold=%u healthy=%d fallback=%d",
-				 absent_s,
-				 (unsigned)s_settings.low_enter_absent_s,
-				 presence.radar_healthy ? 1 : 0,
-				 presence.using_out_fallback ? 1 : 0);
-		}
-		return;
-	}
-
-	if (s_main_page == UI_PAGE_LOW_CLOCK && s_low_clock_auto_entered && presence.detected &&
-	    s_presence_present_since_us > 0) {
-		const int64_t present_s = (now_us - s_presence_present_since_us) / 1000000LL;
-		if (present_s >= (int64_t)s_settings.low_exit_present_s) {
-			s_main_page = UI_PAGE_HOME;
-			s_low_clock_auto_entered = false;
-			s_dirty = true;
-			(void)ui_actions_publish_device_event("welcome_played", NULL);
-			ESP_LOGI(TAG, "exit low clock present_s=%" PRIi64 " threshold=%u healthy=%d fallback=%d",
-				 present_s,
-				 (unsigned)s_settings.low_exit_present_s,
-				 presence.radar_healthy ? 1 : 0,
-				 presence.using_out_fallback ? 1 : 0);
-		}
+	if (action == UI_LOW_CLOCK_ACTION_EXIT) {
+		s_dirty = true;
+		(void)ui_actions_publish_device_event("welcome_played", NULL);
+		ESP_LOGI(TAG, "exit low clock present_s=%" PRIi64 " threshold=%u healthy=%d fallback=%d",
+			 result.duration_s,
+			 (unsigned)result.threshold_s,
+			 result.presence.radar_healthy ? 1 : 0,
+			 result.presence.using_out_fallback ? 1 : 0);
 	}
 }
 
@@ -205,7 +174,7 @@ static void process_key(size_t key_index)
 		.todo_page_focus = &s_todo_page_focus,
 		.todo_selected = &s_todo_selected,
 		.alarm_count = s_settings.alarm_count,
-		.low_clock_auto_entered = &s_low_clock_auto_entered,
+		.low_clock_auto_entered = &s_low_clock_runtime.auto_entered,
 		.process_settings_ok = process_settings_ok_action,
 		.log_info = navigation_log_info,
 	};
