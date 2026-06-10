@@ -20,6 +20,7 @@ idf_component_register(
     "modules/interaction/ui_renderer.c"
     "modules/interaction/ui_settings_controller.c"
     "modules/interaction/ui_settings_pages.c"
+    "modules/interaction/ui_settings_store.c"
     "modules/interaction/ui_todo_view.c"
     "modules/interaction/display_lvgl_port.c"
     "modules/interaction/display_service.c"
