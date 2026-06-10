@@ -1,28 +1,25 @@
 #include "app_module.h"
 #include <app_bus.h>
 #include <audio_assets.h>
-#include <audio_pcm_player.h>
+#include <audio_output.h>
 #include <audio_service.h>
-#include <hw_config.h>
 #include <module_common.h>
 
-#include <driver/i2s_std.h>
-#include <esp_err.h>
 #include <esp_log.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
-#include <inttypes.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 static const char *TAG = "audio";
-static i2s_chan_handle_t s_tx_handle;
 static QueueHandle_t s_audio_queue;
 static TaskHandle_t s_audio_task;
 static uint8_t s_volume = 6;
 static int64_t s_audio_blocked_until_us;
 static volatile bool s_audio_busy;
-static bool s_i2s_enabled;
 
 typedef struct {
 	app_audio_event_t event_id;
@@ -31,36 +28,6 @@ typedef struct {
 } app_audio_request_t;
 
 static void audio_bus_handler(const app_bus_event_t *event, void *ctx);
-
-static int audio_enable_output(void)
-{
-	if (s_i2s_enabled) {
-		return 0;
-	}
-
-	esp_err_t err = i2s_channel_enable(s_tx_handle);
-	if (err != ESP_OK) {
-		ESP_LOGE(TAG, "i2s_channel_enable failed: %s", esp_err_to_name(err));
-		return (int)err;
-	}
-	s_i2s_enabled = true;
-	return 0;
-}
-
-static void audio_disable_output(void)
-{
-	if (!s_i2s_enabled) {
-		return;
-	}
-
-	(void)audio_pcm_player_play_silence_ms(s_tx_handle, 40);
-	esp_err_t err = i2s_channel_disable(s_tx_handle);
-	if (err != ESP_OK) {
-		ESP_LOGW(TAG, "i2s_channel_disable failed: %s", esp_err_to_name(err));
-		return;
-	}
-	s_i2s_enabled = false;
-}
 
 static void audio_task(void *arg)
 {
@@ -74,10 +41,7 @@ static void audio_task(void *arg)
 
 		s_audio_busy = true;
 		ESP_LOGI(TAG, "play event=%d size=%u", (int)request.event_id, (unsigned)request.wav_size);
-		if (audio_enable_output() == 0) {
-			(void)audio_pcm_player_play_wav(s_tx_handle, request.wav_data, request.wav_size, s_volume);
-			audio_disable_output();
-		}
+		(void)audio_output_play_wav(request.wav_data, request.wav_size, s_volume);
 		s_audio_busy = false;
 		s_audio_blocked_until_us = esp_timer_get_time() + 3000000LL;
 	}
@@ -85,44 +49,20 @@ static void audio_task(void *arg)
 
 int audio_service_init(void)
 {
-	const i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
-	const i2s_std_config_t std_cfg = {
-		.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(16000),
-		.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
-		.gpio_cfg = {
-			.mclk = I2S_GPIO_UNUSED,
-			.bclk = APP_PIN_I2S_BCLK,
-			.ws = APP_PIN_I2S_WS,
-			.dout = APP_PIN_I2S_DOUT,
-			.din = I2S_GPIO_UNUSED,
-			.invert_flags = {
-				.mclk_inv = false,
-				.bclk_inv = false,
-				.ws_inv = false,
-			},
-		},
-	};
-
-	esp_err_t err = i2s_new_channel(&chan_cfg, &s_tx_handle, NULL);
-	if (err != ESP_OK) {
-		ESP_LOGE(TAG, "i2s_new_channel failed: %s", esp_err_to_name(err));
-		return (int)err;
-	}
-
-	err = i2s_channel_init_std_mode(s_tx_handle, &std_cfg);
-	if (err != ESP_OK) {
-		ESP_LOGE(TAG, "i2s_channel_init_std_mode failed: %s", esp_err_to_name(err));
-		return (int)err;
+	int ret = audio_output_init();
+	if (ret != 0) {
+		return ret;
 	}
 
 	s_audio_queue = xQueueCreate(8, sizeof(app_audio_request_t));
 	if (s_audio_queue == NULL) {
 		ESP_LOGE(TAG, "failed to create audio queue");
+		audio_output_deinit();
 		return -1;
 	}
 	(void)app_bus_subscribe(APP_BUS_EVENT_AUDIO_PLAY_REQUEST, audio_bus_handler, NULL);
 
-	ESP_LOGI(TAG, "init bclk=%d ws=%d dout=%d", APP_PIN_I2S_BCLK, APP_PIN_I2S_WS, APP_PIN_I2S_DOUT);
+	ESP_LOGI(TAG, "init");
 	return 0;
 }
 
@@ -149,11 +89,7 @@ int audio_service_stop(void)
 		s_audio_queue = NULL;
 	}
 
-	if (s_tx_handle != NULL) {
-		audio_disable_output();
-		(void)i2s_del_channel(s_tx_handle);
-		s_tx_handle = NULL;
-	}
+	audio_output_deinit();
 
 	return 0;
 }
