@@ -1,6 +1,6 @@
-#include <input_gpio.h>
+#include <interaction/input_gpio.h>
 
-#include <hw_config.h>
+#include <core/hw_config.h>
 
 #include <driver/gpio.h>
 #include <esp_err.h>

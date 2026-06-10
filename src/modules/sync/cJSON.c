@@ -1,4 +1,4 @@
-#include <cJSON.h>
+#include <third_party/cJSON.h>
 
 #include <ctype.h>
 #include <stdio.h>

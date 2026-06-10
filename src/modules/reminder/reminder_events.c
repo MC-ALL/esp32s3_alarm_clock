@@ -1,6 +1,6 @@
-#include <reminder_events.h>
+#include <reminder/reminder_events.h>
 
-#include <app_bus.h>
+#include <core/app_bus.h>
 
 #include <esp_timer.h>
 #include <string.h>

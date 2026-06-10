@@ -1,6 +1,6 @@
-#include <sync_periodic_timer.h>
+#include <sync/sync_periodic_timer.h>
 
-#include <app_config.h>
+#include <core/app_config.h>
 
 #include <esp_timer.h>
 #include <stddef.h>

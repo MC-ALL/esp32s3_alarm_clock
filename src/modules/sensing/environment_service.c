@@ -1,12 +1,12 @@
 #include "app_module.h"
-#include <app_bus.h>
-#include <environment_bh1750.h>
-#include <environment_dht11.h>
-#include <environment_sample_runtime.h>
-#include <environment_service.h>
-#include <hw_config.h>
-#include <module_common.h>
-#include <settings_model.h>
+#include <core/app_bus.h>
+#include <sensing/environment_bh1750.h>
+#include <sensing/environment_dht11.h>
+#include <sensing/environment_sample_runtime.h>
+#include <sensing/environment_service.h>
+#include <core/hw_config.h>
+#include <core/module_common.h>
+#include <config/settings_model.h>
 
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>

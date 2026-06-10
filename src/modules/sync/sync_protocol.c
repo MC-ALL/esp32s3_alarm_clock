@@ -1,6 +1,6 @@
-#include <sync_protocol.h>
+#include <sync/sync_protocol.h>
 
-#include <cJSON.h>
+#include <third_party/cJSON.h>
 #include <string.h>
 
 static void json_copy_string(const cJSON *object, const char *key, char *out, size_t out_size)

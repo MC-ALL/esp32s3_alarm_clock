@@ -1,4 +1,4 @@
-#include <net_http.h>
+#include <connectivity/net_http.h>
 
 #include <esp_http_client.h>
 #include <string.h>

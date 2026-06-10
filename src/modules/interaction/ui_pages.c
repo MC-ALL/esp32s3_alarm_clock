@@ -1,11 +1,11 @@
-#include <ui_pages.h>
+#include <interaction/ui_pages.h>
 
-#include <sync_service.h>
-#include <ui_alarm_view.h>
-#include <ui_format.h>
-#include <ui_layout.h>
-#include <ui_style.h>
-#include <ui_todo_view.h>
+#include <sync/sync_service.h>
+#include <interaction/ui_alarm_view.h>
+#include <interaction/ui_format.h>
+#include <interaction/ui_layout.h>
+#include <interaction/ui_style.h>
+#include <interaction/ui_todo_view.h>
 
 #include <stdio.h>
 

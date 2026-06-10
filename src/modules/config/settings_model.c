@@ -1,8 +1,8 @@
 #include "app_module.h"
-#include <module_common.h>
-#include <settings_defaults.h>
-#include <settings_model.h>
-#include <settings_storage.h>
+#include <core/module_common.h>
+#include <config/settings_defaults.h>
+#include <config/settings_model.h>
+#include <config/settings_storage.h>
 
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>

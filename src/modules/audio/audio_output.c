@@ -1,7 +1,7 @@
-#include <audio_output.h>
+#include <audio/audio_output.h>
 
-#include <audio_pcm_player.h>
-#include <hw_config.h>
+#include <audio/audio_pcm_player.h>
+#include <core/hw_config.h>
 
 #include <driver/i2s_std.h>
 #include <esp_err.h>

@@ -1,11 +1,11 @@
 #include "app_module.h"
-#include <app_config.h>
-#include <module_common.h>
-#include <net_http.h>
-#include <net_service.h>
-#include <net_time.h>
-#include <net_wifi_platform.h>
-#include <net_wifi_runtime.h>
+#include <core/app_config.h>
+#include <core/module_common.h>
+#include <connectivity/net_http.h>
+#include <connectivity/net_service.h>
+#include <connectivity/net_time.h>
+#include <connectivity/net_wifi_platform.h>
+#include <connectivity/net_wifi_runtime.h>
 
 #include <esp_event.h>
 #include <esp_log.h>

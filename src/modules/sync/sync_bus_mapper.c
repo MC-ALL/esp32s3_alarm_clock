@@ -1,4 +1,4 @@
-#include <sync_bus_mapper.h>
+#include <sync/sync_bus_mapper.h>
 
 #include <string.h>
 

@@ -1,6 +1,6 @@
 #include "app_module.h"
-#include <app_bus.h>
-#include <module_common.h>
+#include <core/app_bus.h>
+#include <core/module_common.h>
 
 #include <esp_log.h>
 #include <esp_timer.h>

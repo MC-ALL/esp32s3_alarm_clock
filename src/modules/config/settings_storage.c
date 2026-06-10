@@ -1,4 +1,4 @@
-#include <settings_storage.h>
+#include <config/settings_storage.h>
 
 #include <esp_err.h>
 #include <esp_log.h>

@@ -1,12 +1,12 @@
-#include <ui_status_pages.h>
+#include <interaction/ui_status_pages.h>
 
-#include <environment_service.h>
-#include <net_service.h>
-#include <presence_service.h>
-#include <sync_service.h>
-#include <ui_layout.h>
-#include <ui_style.h>
-#include <ui_todo_view.h>
+#include <sensing/environment_service.h>
+#include <connectivity/net_service.h>
+#include <sensing/presence_service.h>
+#include <sync/sync_service.h>
+#include <interaction/ui_layout.h>
+#include <interaction/ui_style.h>
+#include <interaction/ui_todo_view.h>
 
 #include <stdio.h>
 

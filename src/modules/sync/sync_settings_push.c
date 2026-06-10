@@ -1,8 +1,8 @@
-#include <sync_settings_push.h>
+#include <sync/sync_settings_push.h>
 
-#include <app_bus.h>
-#include <sync_protocol.h>
-#include <sync_transport.h>
+#include <core/app_bus.h>
+#include <sync/sync_protocol.h>
+#include <sync/sync_transport.h>
 
 #include <stdlib.h>
 #include <string.h>

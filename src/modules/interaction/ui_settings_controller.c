@@ -1,9 +1,9 @@
-#include <ui_settings_controller.h>
+#include <interaction/ui_settings_controller.h>
 
-#include <sync_service.h>
-#include <ui_actions.h>
-#include <ui_settings_adjust.h>
-#include <ui_todo_view.h>
+#include <sync/sync_service.h>
+#include <interaction/ui_actions.h>
+#include <interaction/ui_settings_adjust.h>
+#include <interaction/ui_todo_view.h>
 
 #include <esp_log.h>
 

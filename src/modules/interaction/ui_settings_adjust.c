@@ -1,6 +1,6 @@
-#include <ui_settings_adjust.h>
+#include <interaction/ui_settings_adjust.h>
 
-#include <ui_actions.h>
+#include <interaction/ui_actions.h>
 
 bool ui_settings_cycle_u8(uint8_t *value, const uint8_t *values, size_t count, uint8_t fallback)
 {

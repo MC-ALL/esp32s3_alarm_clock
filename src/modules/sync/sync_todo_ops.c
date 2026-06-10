@@ -1,10 +1,10 @@
-#include <sync_todo_ops.h>
+#include <sync/sync_todo_ops.h>
 
-#include <app_bus.h>
-#include <app_config.h>
-#include <sync_event_reporter.h>
-#include <sync_todo_cache.h>
-#include <sync_transport.h>
+#include <core/app_bus.h>
+#include <core/app_config.h>
+#include <sync/sync_event_reporter.h>
+#include <sync/sync_todo_cache.h>
+#include <sync/sync_transport.h>
 
 #include <stdio.h>
 #include <string.h>

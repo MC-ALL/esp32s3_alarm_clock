@@ -1,6 +1,6 @@
-#include <environment_sample_runtime.h>
+#include <sensing/environment_sample_runtime.h>
 
-#include <hw_config.h>
+#include <core/hw_config.h>
 
 #include <driver/gpio.h>
 #include <esp_log.h>

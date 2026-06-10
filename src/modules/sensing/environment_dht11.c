@@ -1,6 +1,6 @@
-#include <environment_dht11.h>
+#include <sensing/environment_dht11.h>
 
-#include <hw_config.h>
+#include <core/hw_config.h>
 
 #include <dht.h>
 #include <driver/gpio.h>

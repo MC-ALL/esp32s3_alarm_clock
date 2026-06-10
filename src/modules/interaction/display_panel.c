@@ -1,6 +1,6 @@
-#include <display_panel.h>
+#include <interaction/display_panel.h>
 
-#include <hw_config.h>
+#include <core/hw_config.h>
 
 #include <driver/spi_common.h>
 #include <driver/spi_master.h>

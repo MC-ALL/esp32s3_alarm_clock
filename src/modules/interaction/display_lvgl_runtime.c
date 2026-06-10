@@ -1,4 +1,4 @@
-#include <display_lvgl_runtime.h>
+#include <interaction/display_lvgl_runtime.h>
 
 #include <esp_err.h>
 #include <esp_log.h>

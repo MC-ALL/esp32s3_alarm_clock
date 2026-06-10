@@ -1,7 +1,7 @@
 #include "app_module.h"
-#include <backlight_service.h>
-#include <hw_config.h>
-#include <module_common.h>
+#include <interaction/backlight_service.h>
+#include <core/hw_config.h>
+#include <core/module_common.h>
 
 #include <driver/ledc.h>
 #include <esp_err.h>

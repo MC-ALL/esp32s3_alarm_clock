@@ -1,8 +1,8 @@
 #include "app_module.h"
-#include <app_bus.h>
-#include <input_gpio.h>
-#include <input_service.h>
-#include <module_common.h>
+#include <core/app_bus.h>
+#include <interaction/input_gpio.h>
+#include <interaction/input_service.h>
+#include <core/module_common.h>
 
 #include <esp_log.h>
 #include <esp_timer.h>

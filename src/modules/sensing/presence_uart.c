@@ -1,6 +1,6 @@
-#include <presence_uart.h>
+#include <sensing/presence_uart.h>
 
-#include <hw_config.h>
+#include <core/hw_config.h>
 
 #include <driver/gpio.h>
 #include <driver/uart.h>

@@ -1,11 +1,11 @@
-#include <sync_config_pull.h>
+#include <sync/sync_config_pull.h>
 
-#include <app_bus.h>
-#include <app_config.h>
-#include <settings_model.h>
-#include <sync_protocol.h>
-#include <sync_todo_cache.h>
-#include <sync_transport.h>
+#include <core/app_bus.h>
+#include <core/app_config.h>
+#include <config/settings_model.h>
+#include <sync/sync_protocol.h>
+#include <sync/sync_todo_cache.h>
+#include <sync/sync_transport.h>
 
 #include <esp_heap_caps.h>
 #include <esp_log.h>

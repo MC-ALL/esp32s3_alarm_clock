@@ -1,5 +1,5 @@
-#include <sync_request_retry.h>
-#include <sync_transport.h>
+#include <sync/sync_request_retry.h>
+#include <sync/sync_transport.h>
 
 #include <esp_timer.h>
 #include <string.h>

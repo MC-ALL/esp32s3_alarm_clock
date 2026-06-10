@@ -1,6 +1,6 @@
-#include <sync_protocol.h>
+#include <sync/sync_protocol.h>
 
-#include <cJSON.h>
+#include <third_party/cJSON.h>
 
 static cJSON *create_telemetry_base(const char *timestamp_key, const char *timestamp,
 				    const app_environment_snapshot_t *env,

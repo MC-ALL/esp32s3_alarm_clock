@@ -1,8 +1,8 @@
-#include <ui_settings_store.h>
+#include <interaction/ui_settings_store.h>
 
-#include <app_bus.h>
-#include <settings_model.h>
-#include <ui_actions.h>
+#include <core/app_bus.h>
+#include <config/settings_model.h>
+#include <interaction/ui_actions.h>
 
 #include <esp_log.h>
 

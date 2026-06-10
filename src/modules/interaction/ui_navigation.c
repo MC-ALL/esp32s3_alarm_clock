@@ -1,7 +1,7 @@
-#include <ui_navigation.h>
+#include <interaction/ui_navigation.h>
 
-#include <sync_service.h>
-#include <ui_todo_view.h>
+#include <sync/sync_service.h>
+#include <interaction/ui_todo_view.h>
 
 static uint8_t focus_count_for_view(const ui_navigation_state_t *state)
 {

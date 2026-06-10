@@ -1,9 +1,9 @@
 #include "app_module.h"
-#include <app_bus.h>
-#include <audio_assets.h>
-#include <audio_output.h>
-#include <audio_service.h>
-#include <module_common.h>
+#include <core/app_bus.h>
+#include <audio/audio_assets.h>
+#include <audio/audio_output.h>
+#include <audio/audio_service.h>
+#include <core/module_common.h>
 
 #include <esp_log.h>
 #include <esp_timer.h>

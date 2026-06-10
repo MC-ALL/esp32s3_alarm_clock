@@ -1,4 +1,4 @@
-#include <reminder_env_alert.h>
+#include <reminder/reminder_env_alert.h>
 
 const char *reminder_env_alert_name(app_audio_event_t event)
 {

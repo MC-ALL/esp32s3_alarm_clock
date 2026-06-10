@@ -1,6 +1,6 @@
-#include <environment_bh1750.h>
+#include <sensing/environment_bh1750.h>
 
-#include <hw_config.h>
+#include <core/hw_config.h>
 
 #include <driver/i2c_master.h>
 #include <esp_err.h>

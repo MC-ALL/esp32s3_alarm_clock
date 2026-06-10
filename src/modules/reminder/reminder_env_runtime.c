@@ -1,8 +1,8 @@
-#include <reminder_env_runtime.h>
+#include <reminder/reminder_env_runtime.h>
 
-#include <environment_service.h>
-#include <reminder_env_alert.h>
-#include <reminder_events.h>
+#include <sensing/environment_service.h>
+#include <reminder/reminder_env_alert.h>
+#include <reminder/reminder_events.h>
 
 #include <esp_log.h>
 #include <esp_timer.h>

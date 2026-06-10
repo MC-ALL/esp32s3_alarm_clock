@@ -1,10 +1,10 @@
-#include <sync_event_reporter.h>
+#include <sync/sync_event_reporter.h>
 
-#include <app_config.h>
-#include <environment_service.h>
-#include <presence_service.h>
-#include <sync_protocol.h>
-#include <sync_transport.h>
+#include <core/app_config.h>
+#include <sensing/environment_service.h>
+#include <sensing/presence_service.h>
+#include <sync/sync_protocol.h>
+#include <sync/sync_transport.h>
 
 #include <esp_timer.h>
 #include <stdint.h>

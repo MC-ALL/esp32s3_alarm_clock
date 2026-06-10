@@ -1,6 +1,6 @@
-#include <net_time.h>
+#include <connectivity/net_time.h>
 
-#include <app_config.h>
+#include <core/app_config.h>
 
 #include <lwip/apps/sntp.h>
 #include <stdlib.h>

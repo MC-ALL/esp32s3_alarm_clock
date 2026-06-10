@@ -1,7 +1,7 @@
-#include <sync_transport.h>
+#include <sync/sync_transport.h>
 
-#include <app_config.h>
-#include <net_service.h>
+#include <core/app_config.h>
+#include <connectivity/net_service.h>
 
 #include <stdio.h>
 #include <time.h>

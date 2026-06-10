@@ -1,15 +1,15 @@
 #include "app_module.h"
-#include <app_bus.h>
-#include <module_common.h>
-#include <settings_model.h>
-#include <sync_bus_mapper.h>
-#include <sync_config_pull.h>
-#include <sync_event_reporter.h>
-#include <sync_periodic_timer.h>
-#include <sync_request_executor.h>
-#include <sync_request_retry.h>
-#include <sync_service.h>
-#include <sync_todo_cache.h>
+#include <core/app_bus.h>
+#include <core/module_common.h>
+#include <config/settings_model.h>
+#include <sync/sync_bus_mapper.h>
+#include <sync/sync_config_pull.h>
+#include <sync/sync_event_reporter.h>
+#include <sync/sync_periodic_timer.h>
+#include <sync/sync_request_executor.h>
+#include <sync/sync_request_retry.h>
+#include <sync/sync_service.h>
+#include <sync/sync_todo_cache.h>
 
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>

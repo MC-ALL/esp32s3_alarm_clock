@@ -1,13 +1,13 @@
-#include <ui_renderer.h>
+#include <interaction/ui_renderer.h>
 
-#include <display_service.h>
-#include <sync_service.h>
-#include <ui_layout.h>
-#include <ui_pages.h>
-#include <ui_settings_pages.h>
-#include <ui_style.h>
-#include <ui_status_pages.h>
-#include <ui_todo_view.h>
+#include <interaction/display_service.h>
+#include <sync/sync_service.h>
+#include <interaction/ui_layout.h>
+#include <interaction/ui_pages.h>
+#include <interaction/ui_settings_pages.h>
+#include <interaction/ui_style.h>
+#include <interaction/ui_status_pages.h>
+#include <interaction/ui_todo_view.h>
 
 #include <lvgl.h>
 #include <stddef.h>

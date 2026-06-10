@@ -1,6 +1,6 @@
-#include <ui_key_queue.h>
+#include <interaction/ui_key_queue.h>
 
-#include <app_bus.h>
+#include <core/app_bus.h>
 
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>

@@ -1,4 +1,4 @@
-#include <audio_assets.h>
+#include <audio/audio_assets.h>
 
 extern const uint8_t welcome_wav_start[] asm("_binary_welcome_wav_start");
 extern const uint8_t welcome_wav_end[] asm("_binary_welcome_wav_end");

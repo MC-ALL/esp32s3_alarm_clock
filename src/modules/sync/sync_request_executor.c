@@ -1,12 +1,12 @@
-#include <sync_request_executor.h>
+#include <sync/sync_request_executor.h>
 
 #include <stddef.h>
 
-#include <sync_config_pull.h>
-#include <sync_event_reporter.h>
-#include <sync_settings_push.h>
-#include <sync_status_reporter.h>
-#include <sync_todo_ops.h>
+#include <sync/sync_config_pull.h>
+#include <sync/sync_event_reporter.h>
+#include <sync/sync_settings_push.h>
+#include <sync/sync_status_reporter.h>
+#include <sync/sync_todo_ops.h>
 
 int sync_request_executor_execute(const sync_request_executor_t *executor, const sync_request_t *request)
 {

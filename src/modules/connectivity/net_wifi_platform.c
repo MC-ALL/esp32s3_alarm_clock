@@ -1,4 +1,4 @@
-#include <net_wifi_platform.h>
+#include <connectivity/net_wifi_platform.h>
 
 #include <esp_err.h>
 #include <esp_netif.h>

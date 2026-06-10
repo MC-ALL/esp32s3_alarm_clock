@@ -1,4 +1,4 @@
-#include <settings_defaults.h>
+#include <config/settings_defaults.h>
 
 void settings_defaults_apply(app_settings_t *settings)
 {

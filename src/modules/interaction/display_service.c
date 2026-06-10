@@ -1,9 +1,9 @@
 #include "app_module.h"
-#include <display_lvgl_port.h>
-#include <display_panel.h>
-#include <display_service.h>
-#include <hw_config.h>
-#include <module_common.h>
+#include <interaction/display_lvgl_port.h>
+#include <interaction/display_panel.h>
+#include <interaction/display_service.h>
+#include <core/hw_config.h>
+#include <core/module_common.h>
 
 #include <esp_err.h>
 #include <esp_log.h>

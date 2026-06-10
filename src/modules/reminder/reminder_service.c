@@ -1,13 +1,13 @@
 #include "app_module.h"
-#include <module_common.h>
-#include <presence_service.h>
-#include <reminder_env_runtime.h>
-#include <reminder_events.h>
-#include <reminder_rest_runtime.h>
-#include <reminder_time_runtime.h>
-#include <reminder_todo_runtime.h>
-#include <settings_model.h>
-#include <sync_service.h>
+#include <core/module_common.h>
+#include <sensing/presence_service.h>
+#include <reminder/reminder_env_runtime.h>
+#include <reminder/reminder_events.h>
+#include <reminder/reminder_rest_runtime.h>
+#include <reminder/reminder_time_runtime.h>
+#include <reminder/reminder_todo_runtime.h>
+#include <config/settings_model.h>
+#include <sync/sync_service.h>
 
 #include <esp_log.h>
 #include <esp_timer.h>

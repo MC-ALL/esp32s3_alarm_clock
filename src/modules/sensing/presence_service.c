@@ -1,10 +1,10 @@
 #include "app_module.h"
-#include <hw_config.h>
-#include <presence_ld2410.h>
-#include <presence_service.h>
-#include <presence_status_runtime.h>
-#include <presence_uart.h>
-#include <module_common.h>
+#include <core/hw_config.h>
+#include <sensing/presence_ld2410.h>
+#include <sensing/presence_service.h>
+#include <sensing/presence_status_runtime.h>
+#include <sensing/presence_uart.h>
+#include <core/module_common.h>
 
 #include <inttypes.h>
 #include <driver/gpio.h>

@@ -1,4 +1,4 @@
-#include <net_wifi_runtime.h>
+#include <connectivity/net_wifi_runtime.h>
 
 #include <esp_err.h>
 #include <string.h>

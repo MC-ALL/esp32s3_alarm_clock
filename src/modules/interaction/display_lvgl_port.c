@@ -1,6 +1,6 @@
-#include <display_lvgl_port.h>
-#include <display_lvgl_runtime.h>
-#include <hw_config.h>
+#include <interaction/display_lvgl_port.h>
+#include <interaction/display_lvgl_runtime.h>
+#include <core/hw_config.h>
 
 #include <esp_err.h>
 #include <esp_log.h>
