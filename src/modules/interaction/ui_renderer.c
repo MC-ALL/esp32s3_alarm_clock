@@ -6,6 +6,7 @@
 #include <ui_pages.h>
 #include <ui_settings_pages.h>
 #include <ui_style.h>
+#include <ui_status_pages.h>
 #include <ui_todo_view.h>
 
 #include <lvgl.h>
@@ -72,10 +73,10 @@ static void render_main_page(lv_obj_t *screen, const ui_renderer_state_t *state)
 		ui_pages_render_todo(screen, &pages);
 		break;
 	case UI_PAGE_ENV:
-		ui_pages_render_env(screen, &pages);
+		ui_status_pages_render_env(screen, &pages);
 		break;
 	case UI_PAGE_WIFI:
-		ui_pages_render_wifi(screen);
+		ui_status_pages_render_wifi(screen);
 		break;
 	case UI_PAGE_LOW_CLOCK:
 		ui_pages_render_low_clock(screen, &pages);

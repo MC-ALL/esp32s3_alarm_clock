@@ -27,8 +27,6 @@ typedef struct {
 void ui_pages_render_home(lv_obj_t *screen, const ui_pages_state_t *state);
 void ui_pages_render_alarm(lv_obj_t *screen, const ui_pages_state_t *state);
 void ui_pages_render_todo(lv_obj_t *screen, const ui_pages_state_t *state);
-void ui_pages_render_env(lv_obj_t *screen, const ui_pages_state_t *state);
-void ui_pages_render_wifi(lv_obj_t *screen);
 void ui_pages_render_low_clock(lv_obj_t *screen, const ui_pages_state_t *state);
 
 #endif
