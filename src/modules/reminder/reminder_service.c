@@ -5,6 +5,7 @@
 #include <presence_service.h>
 #include <reminder_env_alert.h>
 #include <reminder_rest_runtime.h>
+#include <reminder_time_runtime.h>
 #include <reminder_todo_runtime.h>
 #include <settings_model.h>
 #include <sync_service.h>
@@ -20,12 +21,9 @@
 static const char *TAG = "reminder";
 
 static TaskHandle_t s_reminder_task;
-static int s_alarm_last_yday = -1;
-static int s_alarm_last_minute = -1;
-static int s_hour_chime_last_yday = -1;
-static int s_hour_chime_last_hour = -1;
 static app_audio_event_t s_env_active_alert = APP_AUDIO_EVENT_TEST;
 static int64_t s_env_last_alert_play_us;
+static reminder_time_runtime_t s_time_runtime;
 static reminder_todo_runtime_t s_todo_runtime;
 static reminder_rest_runtime_t s_rest_runtime;
 
@@ -70,54 +68,38 @@ static int request_audio_event(app_audio_event_t event_id)
 
 static void update_alarm_runtime(app_settings_t *settings, const struct tm *t)
 {
-	if (settings == NULL || t == NULL || t->tm_year < (2024 - 1900) || t->tm_sec > 2) {
+	if (settings == NULL) {
 		return;
 	}
 
-	const int minute_of_day = t->tm_hour * 60 + t->tm_min;
-	if (s_alarm_last_yday == t->tm_yday && s_alarm_last_minute == minute_of_day) {
+	reminder_alarm_fire_t fire = { 0 };
+	if (!reminder_time_runtime_update_alarm(&s_time_runtime, settings, t, &fire)) {
 		return;
 	}
 
-	for (uint8_t i = 0; i < settings->alarm_count && i < APP_SETTINGS_MAX_ALARMS; i++) {
-		app_alarm_setting_t *alarm = &settings->alarms[i];
-		if (!alarm->enabled || alarm->hour != (uint8_t)t->tm_hour || alarm->minute != (uint8_t)t->tm_min) {
-			continue;
+	publish_device_event("alarm_triggered", NULL);
+	if (settings->alarm_voice_on && fire.alarm.voice) {
+		int ret = request_audio_event(APP_AUDIO_EVENT_ALARM);
+		ESP_LOGI(TAG, "alarm fired index=%u time=%02u:%02u ret=%d",
+			 (unsigned)fire.index, (unsigned)fire.alarm.hour, (unsigned)fire.alarm.minute, ret);
+	} else {
+		ESP_LOGI(TAG, "alarm fired index=%u time=%02u:%02u voice=0",
+			 (unsigned)fire.index, (unsigned)fire.alarm.hour, (unsigned)fire.alarm.minute);
+	}
+	if (!fire.alarm.repeat && fire.index < settings->alarm_count && fire.index < APP_SETTINGS_MAX_ALARMS) {
+		settings->alarms[fire.index].enabled = false;
+		if (settings_model_set(settings) == 0) {
+			publish_alarm_settings_changed(settings);
 		}
-
-		s_alarm_last_yday = t->tm_yday;
-		s_alarm_last_minute = minute_of_day;
-		publish_device_event("alarm_triggered", NULL);
-		if (settings->alarm_voice_on && alarm->voice) {
-			int ret = request_audio_event(APP_AUDIO_EVENT_ALARM);
-			ESP_LOGI(TAG, "alarm fired index=%u time=%02u:%02u ret=%d",
-				 (unsigned)i, (unsigned)alarm->hour, (unsigned)alarm->minute, ret);
-		} else {
-			ESP_LOGI(TAG, "alarm fired index=%u time=%02u:%02u voice=0",
-				 (unsigned)i, (unsigned)alarm->hour, (unsigned)alarm->minute);
-		}
-		if (!alarm->repeat) {
-			alarm->enabled = false;
-			if (settings_model_set(settings) == 0) {
-				publish_alarm_settings_changed(settings);
-			}
-		}
-		return;
 	}
 }
 
 static void update_hour_chime_runtime(const app_settings_t *settings, const struct tm *t)
 {
-	if (settings == NULL || t == NULL || !settings->home_hour_chime_on ||
-	    t->tm_year < (2024 - 1900) || t->tm_min != 0 || t->tm_sec > 2) {
-		return;
-	}
-	if (s_hour_chime_last_yday == t->tm_yday && s_hour_chime_last_hour == t->tm_hour) {
+	if (!reminder_time_runtime_update_hour_chime(&s_time_runtime, settings, t)) {
 		return;
 	}
 
-	s_hour_chime_last_yday = t->tm_yday;
-	s_hour_chime_last_hour = t->tm_hour;
 	int ret = request_audio_event(APP_AUDIO_EVENT_HOUR_CHIME);
 	ESP_LOGI(TAG, "hour chime fired hour=%02d ret=%d", t->tm_hour, ret);
 }
@@ -243,6 +225,7 @@ static void reminder_task(void *arg)
 int reminder_service_init(void)
 {
 	ESP_LOGI(TAG, "init");
+	reminder_time_runtime_init(&s_time_runtime);
 	return 0;
 }
 
