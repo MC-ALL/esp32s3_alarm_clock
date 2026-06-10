@@ -16,6 +16,7 @@ idf_component_register(
     "modules/interaction/ui_key_queue.c"
     "modules/interaction/ui_low_clock_runtime.c"
     "modules/interaction/ui_model.c"
+    "modules/interaction/ui_model_state.c"
     "modules/interaction/ui_format.c"
     "modules/interaction/ui_layout.c"
     "modules/interaction/ui_navigation.c"

@@ -5,6 +5,7 @@
 #include <ui_key_queue.h>
 #include <ui_low_clock_runtime.h>
 #include <ui_model.h>
+#include <ui_model_state.h>
 #include <ui_navigation.h>
 #include <ui_renderer.h>
 #include <ui_settings_controller.h>
@@ -47,6 +48,29 @@ static void save_voice_settings(void)
 	(void)ui_settings_store_save(&s_settings, false, true);
 }
 
+static void process_settings_ok_action(void *ctx);
+static void navigation_log_info(const char *message, void *ctx);
+
+static ui_model_state_refs_t state_refs(void)
+{
+	return (ui_model_state_refs_t){
+		.main_page = &s_main_page,
+		.view = &s_view,
+		.focus = &s_focus,
+		.alarm_selected = &s_alarm_selected,
+		.alarm_page_focus = &s_alarm_page_focus,
+		.todo_page_focus = &s_todo_page_focus,
+		.todo_selected = &s_todo_selected,
+		.low_clock_runtime = &s_low_clock_runtime,
+		.settings = &s_settings,
+		.save_settings = save_settings,
+		.save_alarm_settings = save_alarm_settings,
+		.save_voice_settings = save_voice_settings,
+		.process_settings_ok = process_settings_ok_action,
+		.log_info = navigation_log_info,
+	};
+}
+
 static void sync_settings_from_model_for_main(void)
 {
 	if (s_view != UI_VIEW_MAIN) {
@@ -58,34 +82,9 @@ static void sync_settings_from_model_for_main(void)
 
 static void render_ui(void)
 {
-	ui_renderer_state_t state = {
-		.main_page = s_main_page,
-		.view = s_view,
-		.focus = s_focus,
-		.alarm_selected = s_alarm_selected,
-		.todo_selected = s_todo_selected,
-		.home_clock_only = s_settings.home_clock_only,
-		.use_24h = s_settings.use_24h,
-		.low_use_24h = s_settings.low_use_24h,
-		.home_hour_chime_on = s_settings.home_hour_chime_on,
-		.alarm_voice_on = s_settings.alarm_voice_on,
-		.todo_voice_on = s_settings.todo_voice_on,
-		.env_voice_on = s_settings.env_voice_on,
-		.env_alert_on = s_settings.env_alert_on,
-		.env_sample_s = s_settings.env_sample_s,
-		.env_temp_low_c = s_settings.env_temp_low_c,
-		.env_temp_high_c = s_settings.env_temp_high_c,
-		.env_humi_low_percent = s_settings.env_humi_low_percent,
-		.env_humi_high_percent = s_settings.env_humi_high_percent,
-		.env_lux_low = s_settings.env_lux_low,
-		.env_lux_high = s_settings.env_lux_high,
-		.low_enter_absent_s = s_settings.low_enter_absent_s,
-		.low_exit_present_s = s_settings.low_exit_present_s,
-		.alarms = s_settings.alarms,
-		.alarm_count = s_settings.alarm_count,
-		.alarm_page_focus = &s_alarm_page_focus,
-		.todo_page_focus = &s_todo_page_focus,
-	};
+	ui_renderer_state_t state = { 0 };
+	ui_model_state_refs_t refs = state_refs();
+	ui_model_state_make_renderer(&refs, &state);
 	ui_renderer_render(&state);
 }
 
@@ -119,34 +118,9 @@ static void update_low_clock_presence_runtime(void)
 
 static void process_ok_in_settings(void)
 {
-	ui_settings_controller_state_t settings = {
-		.view = &s_view,
-		.focus = &s_focus,
-		.alarm_selected = &s_alarm_selected,
-		.todo_selected = &s_todo_selected,
-		.home_clock_only = &s_settings.home_clock_only,
-		.use_24h = &s_settings.use_24h,
-		.low_use_24h = &s_settings.low_use_24h,
-		.home_hour_chime_on = &s_settings.home_hour_chime_on,
-		.alarm_voice_on = &s_settings.alarm_voice_on,
-		.todo_voice_on = &s_settings.todo_voice_on,
-		.env_voice_on = &s_settings.env_voice_on,
-		.env_alert_on = &s_settings.env_alert_on,
-		.env_sample_s = &s_settings.env_sample_s,
-		.env_temp_low_c = &s_settings.env_temp_low_c,
-		.env_temp_high_c = &s_settings.env_temp_high_c,
-		.env_humi_low_percent = &s_settings.env_humi_low_percent,
-		.env_humi_high_percent = &s_settings.env_humi_high_percent,
-		.env_lux_low = &s_settings.env_lux_low,
-		.env_lux_high = &s_settings.env_lux_high,
-		.low_enter_absent_s = &s_settings.low_enter_absent_s,
-		.low_exit_present_s = &s_settings.low_exit_present_s,
-		.alarms = s_settings.alarms,
-		.alarm_count = &s_settings.alarm_count,
-		.save_settings = save_settings,
-		.save_alarm_settings = save_alarm_settings,
-		.save_voice_settings = save_voice_settings,
-	};
+	ui_settings_controller_state_t settings = { 0 };
+	ui_model_state_refs_t refs = state_refs();
+	ui_model_state_make_settings_controller(&refs, &settings);
 	ui_settings_controller_process_ok(&settings);
 }
 
@@ -164,18 +138,9 @@ static void navigation_log_info(const char *message, void *ctx)
 
 static void process_key(size_t key_index)
 {
-	ui_navigation_state_t navigation = {
-		.main_page = &s_main_page,
-		.view = &s_view,
-		.focus = &s_focus,
-		.alarm_page_focus = &s_alarm_page_focus,
-		.todo_page_focus = &s_todo_page_focus,
-		.todo_selected = &s_todo_selected,
-		.alarm_count = s_settings.alarm_count,
-		.low_clock_auto_entered = &s_low_clock_runtime.auto_entered,
-		.process_settings_ok = process_settings_ok_action,
-		.log_info = navigation_log_info,
-	};
+	ui_navigation_state_t navigation = { 0 };
+	ui_model_state_refs_t refs = state_refs();
+	ui_model_state_make_navigation(&refs, &navigation);
 	if (ui_navigation_process_key(&navigation, key_index)) {
 		s_dirty = true;
 	}
