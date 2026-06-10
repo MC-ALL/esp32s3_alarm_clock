@@ -4,6 +4,8 @@
 #include <module_common.h>
 #include <presence_service.h>
 #include <reminder_env_alert.h>
+#include <reminder_rest_runtime.h>
+#include <reminder_todo_runtime.h>
 #include <settings_model.h>
 #include <sync_service.h>
 
@@ -24,13 +26,8 @@ static int s_hour_chime_last_yday = -1;
 static int s_hour_chime_last_hour = -1;
 static app_audio_event_t s_env_active_alert = APP_AUDIO_EVENT_TEST;
 static int64_t s_env_last_alert_play_us;
-static bool s_todo_seen_once;
-static char s_known_todo_ids[APP_TODO_MAX_ITEMS][24];
-static uint8_t s_known_todo_count;
-static int64_t s_presence_present_since_us;
-static bool s_rest_reminder_fired;
-
-#define APP_REST_REMINDER_PRESENT_US (3LL * 60LL * 60LL * 1000000LL)
+static reminder_todo_runtime_t s_todo_runtime;
+static reminder_rest_runtime_t s_rest_runtime;
 
 static void publish_device_event(const char *event_type, const char *todo_id)
 {
@@ -71,28 +68,6 @@ static int request_audio_event(app_audio_event_t event_id)
 	return app_bus_publish(&event);
 }
 
-static bool todo_id_known(const char *id)
-{
-	for (uint8_t i = 0; i < s_known_todo_count; i++) {
-		if (strcmp(s_known_todo_ids[i], id) == 0) {
-			return true;
-		}
-	}
-	return false;
-}
-
-static void remember_todo_ids(const app_todo_snapshot_t *todo)
-{
-	s_known_todo_count = 0;
-	for (uint8_t i = 0; i < todo->count && i < APP_TODO_MAX_ITEMS; i++) {
-		if (todo->items[i].id[0] == '\0') {
-			continue;
-		}
-		strlcpy(s_known_todo_ids[s_known_todo_count], todo->items[i].id, sizeof(s_known_todo_ids[0]));
-		s_known_todo_count++;
-	}
-}
-
 static void update_alarm_runtime(app_settings_t *settings, const struct tm *t)
 {
 	if (settings == NULL || t == NULL || t->tm_year < (2024 - 1900) || t->tm_sec > 2) {
@@ -112,10 +87,10 @@ static void update_alarm_runtime(app_settings_t *settings, const struct tm *t)
 
 		s_alarm_last_yday = t->tm_yday;
 		s_alarm_last_minute = minute_of_day;
-			publish_device_event("alarm_triggered", NULL);
-			if (settings->alarm_voice_on && alarm->voice) {
-				int ret = request_audio_event(APP_AUDIO_EVENT_ALARM);
-				ESP_LOGI(TAG, "alarm fired index=%u time=%02u:%02u ret=%d",
+		publish_device_event("alarm_triggered", NULL);
+		if (settings->alarm_voice_on && alarm->voice) {
+			int ret = request_audio_event(APP_AUDIO_EVENT_ALARM);
+			ESP_LOGI(TAG, "alarm fired index=%u time=%02u:%02u ret=%d",
 				 (unsigned)i, (unsigned)alarm->hour, (unsigned)alarm->minute, ret);
 		} else {
 			ESP_LOGI(TAG, "alarm fired index=%u time=%02u:%02u voice=0",
@@ -203,28 +178,11 @@ static void update_todo_runtime(const app_settings_t *settings)
 	}
 
 	app_todo_snapshot_t todo = { 0 };
-	if (!sync_service_get_todo_snapshot(&todo) || !todo.sync_ok || todo.sync_in_progress) {
+	if (!sync_service_get_todo_snapshot(&todo)) {
 		return;
 	}
 
-	uint8_t new_count = 0;
-	for (uint8_t i = 0; i < todo.count && i < APP_TODO_MAX_ITEMS; i++) {
-		const app_todo_item_t *item = &todo.items[i];
-		if (item->done || item->id[0] == '\0') {
-			continue;
-		}
-		if (s_todo_seen_once && !todo_id_known(item->id)) {
-			new_count++;
-			ESP_LOGI(TAG, "new todo detected id=%s text=%.32s", item->id, item->text);
-		}
-	}
-
-	remember_todo_ids(&todo);
-	if (!s_todo_seen_once) {
-		s_todo_seen_once = true;
-		return;
-	}
-
+	uint8_t new_count = reminder_todo_runtime_update(&s_todo_runtime, &todo);
 	if (new_count > 0U) {
 		ESP_LOGI(TAG, "new todo alert count=%u voice=%d", (unsigned)new_count, settings->todo_voice_on ? 1 : 0);
 		if (settings->todo_voice_on) {
@@ -245,24 +203,8 @@ static void update_rest_reminder_runtime(void)
 	}
 
 	const int64_t now_us = esp_timer_get_time();
-	if (!presence.detected) {
-		s_presence_present_since_us = 0;
-		s_rest_reminder_fired = false;
-		return;
-	}
-
-	if (s_presence_present_since_us == 0) {
-		s_presence_present_since_us = now_us;
-		s_rest_reminder_fired = false;
-		return;
-	}
-
-	if (s_rest_reminder_fired) {
-		return;
-	}
-
-	const int64_t present_us = now_us - s_presence_present_since_us;
-	if (present_us < APP_REST_REMINDER_PRESENT_US) {
+	int64_t present_us = 0;
+	if (!reminder_rest_runtime_update(&s_rest_runtime, &presence, now_us, &present_us)) {
 		return;
 	}
 
@@ -270,7 +212,7 @@ static void update_rest_reminder_runtime(void)
 	ESP_LOGI(TAG, "rest reminder fired present_s=%" PRIi64 " ret=%d",
 		 present_us / 1000000LL, ret);
 	if (ret == 0) {
-		s_rest_reminder_fired = true;
+		reminder_rest_runtime_mark_fired(&s_rest_runtime);
 		publish_device_event("rest_reminder_triggered", NULL);
 	}
 }
