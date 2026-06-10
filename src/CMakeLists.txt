@@ -45,6 +45,7 @@ idf_component_register(
     "modules/sync/sync_request_executor.c"
     "modules/sync/sync_request_retry.c"
     "modules/sync/sync_protocol.c"
+    "modules/sync/sync_protocol_build.c"
     "modules/sync/sync_settings_push.c"
     "modules/sync/sync_status_reporter.c"
     "modules/sync/sync_todo_cache.c"
