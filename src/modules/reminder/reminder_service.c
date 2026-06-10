@@ -1,8 +1,7 @@
 #include "app_module.h"
-#include <environment_service.h>
 #include <module_common.h>
 #include <presence_service.h>
-#include <reminder_env_alert.h>
+#include <reminder_env_runtime.h>
 #include <reminder_events.h>
 #include <reminder_rest_runtime.h>
 #include <reminder_time_runtime.h>
@@ -20,11 +19,10 @@
 static const char *TAG = "reminder";
 
 static TaskHandle_t s_reminder_task;
-static app_audio_event_t s_env_active_alert = APP_AUDIO_EVENT_TEST;
-static int64_t s_env_last_alert_play_us;
 static reminder_time_runtime_t s_time_runtime;
 static reminder_todo_runtime_t s_todo_runtime;
 static reminder_rest_runtime_t s_rest_runtime;
+static reminder_env_runtime_t s_env_runtime;
 
 static void update_alarm_runtime(app_settings_t *settings, const struct tm *t)
 {
@@ -62,55 +60,6 @@ static void update_hour_chime_runtime(const app_settings_t *settings, const stru
 
 	int ret = reminder_events_request_audio(APP_AUDIO_EVENT_HOUR_CHIME);
 	ESP_LOGI(TAG, "hour chime fired hour=%02d ret=%d", t->tm_hour, ret);
-}
-
-static void update_env_alert_runtime(const app_settings_t *settings)
-{
-	if (settings == NULL || !settings->env_alert_on) {
-		s_env_active_alert = APP_AUDIO_EVENT_TEST;
-		return;
-	}
-
-	app_environment_snapshot_t env = { 0 };
-	if (!environment_service_get_snapshot(&env)) {
-		s_env_active_alert = APP_AUDIO_EVENT_TEST;
-		return;
-	}
-
-	app_audio_event_t event = APP_AUDIO_EVENT_TEST;
-	if (!reminder_env_alert_event(&env, settings, &event)) {
-		if (s_env_active_alert != APP_AUDIO_EVENT_TEST) {
-			ESP_LOGI(TAG, "env alert cleared");
-		}
-		s_env_active_alert = APP_AUDIO_EVENT_TEST;
-		return;
-	}
-
-	const int64_t now_us = esp_timer_get_time();
-	const bool changed = event != s_env_active_alert;
-	const bool repeat_due = (now_us - s_env_last_alert_play_us) >= 60000000LL;
-	if (changed || repeat_due) {
-		ESP_LOGW(TAG,
-			 "env alert %s temp=%.1f[%d,%d] humi=%.1f[%u,%u] lux=%.1f[%u,%u] voice=%d",
-			 reminder_env_alert_name(event),
-			 env.temperature_c,
-			 (int)settings->env_temp_low_c,
-			 (int)settings->env_temp_high_c,
-			 env.humidity_percent,
-			 (unsigned)settings->env_humi_low_percent,
-			 (unsigned)settings->env_humi_high_percent,
-			 env.lux,
-			 (unsigned)settings->env_lux_low,
-			 (unsigned)settings->env_lux_high,
-			 settings->env_voice_on ? 1 : 0);
-		if (settings->env_voice_on) {
-			int ret = reminder_events_request_audio(event);
-			ESP_LOGI(TAG, "env voice event=%s ret=%d", reminder_env_alert_name(event), ret);
-		}
-		reminder_events_publish_device("env_alert_triggered", NULL);
-		s_env_last_alert_play_us = now_us;
-		s_env_active_alert = event;
-	}
 }
 
 static void update_todo_runtime(const app_settings_t *settings)
@@ -174,7 +123,7 @@ static void reminder_task(void *arg)
 
 		update_alarm_runtime(&settings, &t);
 		update_hour_chime_runtime(&settings, &t);
-		update_env_alert_runtime(&settings);
+		reminder_env_runtime_update(&s_env_runtime, &settings);
 		update_todo_runtime(&settings);
 		update_rest_reminder_runtime();
 
@@ -186,6 +135,7 @@ int reminder_service_init(void)
 {
 	ESP_LOGI(TAG, "init");
 	reminder_time_runtime_init(&s_time_runtime);
+	reminder_env_runtime_init(&s_env_runtime);
 	return 0;
 }
 
