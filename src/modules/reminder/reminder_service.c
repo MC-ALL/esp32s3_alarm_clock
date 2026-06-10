@@ -1,9 +1,9 @@
 #include "app_module.h"
-#include <app_bus.h>
 #include <environment_service.h>
 #include <module_common.h>
 #include <presence_service.h>
 #include <reminder_env_alert.h>
+#include <reminder_events.h>
 #include <reminder_rest_runtime.h>
 #include <reminder_time_runtime.h>
 #include <reminder_todo_runtime.h>
@@ -15,7 +15,6 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <inttypes.h>
-#include <string.h>
 #include <time.h>
 
 static const char *TAG = "reminder";
@@ -26,45 +25,6 @@ static int64_t s_env_last_alert_play_us;
 static reminder_time_runtime_t s_time_runtime;
 static reminder_todo_runtime_t s_todo_runtime;
 static reminder_rest_runtime_t s_rest_runtime;
-
-static void publish_device_event(const char *event_type, const char *todo_id)
-{
-	if (event_type == NULL || event_type[0] == '\0') {
-		return;
-	}
-	app_bus_event_t event = {
-		.type = APP_BUS_EVENT_DEVICE_EVENT,
-		.timestamp_us = esp_timer_get_time(),
-	};
-	strlcpy(event.data.device_event.event_type, event_type, sizeof(event.data.device_event.event_type));
-	if (todo_id != NULL) {
-		strlcpy(event.data.device_event.todo_id, todo_id, sizeof(event.data.device_event.todo_id));
-	}
-	(void)app_bus_publish(&event);
-}
-
-static void publish_alarm_settings_changed(const app_settings_t *settings)
-{
-	if (settings == NULL) {
-		return;
-	}
-	app_bus_event_t event = {
-		.type = APP_BUS_EVENT_ALARM_SETTINGS_CHANGED,
-		.timestamp_us = esp_timer_get_time(),
-	};
-	event.data.settings.settings = *settings;
-	(void)app_bus_publish(&event);
-}
-
-static int request_audio_event(app_audio_event_t event_id)
-{
-	app_bus_event_t event = {
-		.type = APP_BUS_EVENT_AUDIO_PLAY_REQUEST,
-		.timestamp_us = esp_timer_get_time(),
-	};
-	event.data.audio.event_id = event_id;
-	return app_bus_publish(&event);
-}
 
 static void update_alarm_runtime(app_settings_t *settings, const struct tm *t)
 {
@@ -77,9 +37,9 @@ static void update_alarm_runtime(app_settings_t *settings, const struct tm *t)
 		return;
 	}
 
-	publish_device_event("alarm_triggered", NULL);
+	reminder_events_publish_device("alarm_triggered", NULL);
 	if (settings->alarm_voice_on && fire.alarm.voice) {
-		int ret = request_audio_event(APP_AUDIO_EVENT_ALARM);
+		int ret = reminder_events_request_audio(APP_AUDIO_EVENT_ALARM);
 		ESP_LOGI(TAG, "alarm fired index=%u time=%02u:%02u ret=%d",
 			 (unsigned)fire.index, (unsigned)fire.alarm.hour, (unsigned)fire.alarm.minute, ret);
 	} else {
@@ -89,7 +49,7 @@ static void update_alarm_runtime(app_settings_t *settings, const struct tm *t)
 	if (!fire.alarm.repeat && fire.index < settings->alarm_count && fire.index < APP_SETTINGS_MAX_ALARMS) {
 		settings->alarms[fire.index].enabled = false;
 		if (settings_model_set(settings) == 0) {
-			publish_alarm_settings_changed(settings);
+			reminder_events_publish_alarm_settings_changed(settings);
 		}
 	}
 }
@@ -100,7 +60,7 @@ static void update_hour_chime_runtime(const app_settings_t *settings, const stru
 		return;
 	}
 
-	int ret = request_audio_event(APP_AUDIO_EVENT_HOUR_CHIME);
+	int ret = reminder_events_request_audio(APP_AUDIO_EVENT_HOUR_CHIME);
 	ESP_LOGI(TAG, "hour chime fired hour=%02d ret=%d", t->tm_hour, ret);
 }
 
@@ -144,10 +104,10 @@ static void update_env_alert_runtime(const app_settings_t *settings)
 			 (unsigned)settings->env_lux_high,
 			 settings->env_voice_on ? 1 : 0);
 		if (settings->env_voice_on) {
-			int ret = request_audio_event(event);
+			int ret = reminder_events_request_audio(event);
 			ESP_LOGI(TAG, "env voice event=%s ret=%d", reminder_env_alert_name(event), ret);
 		}
-		publish_device_event("env_alert_triggered", NULL);
+		reminder_events_publish_device("env_alert_triggered", NULL);
 		s_env_last_alert_play_us = now_us;
 		s_env_active_alert = event;
 	}
@@ -168,10 +128,10 @@ static void update_todo_runtime(const app_settings_t *settings)
 	if (new_count > 0U) {
 		ESP_LOGI(TAG, "new todo alert count=%u voice=%d", (unsigned)new_count, settings->todo_voice_on ? 1 : 0);
 		if (settings->todo_voice_on) {
-			int ret = request_audio_event(APP_AUDIO_EVENT_TODO_SYNC_UP);
+			int ret = reminder_events_request_audio(APP_AUDIO_EVENT_TODO_SYNC_UP);
 			ESP_LOGI(TAG, "todo voice ret=%d", ret);
 			if (ret == 0) {
-				publish_device_event("todo_sync_up_played", NULL);
+				reminder_events_publish_device("todo_sync_up_played", NULL);
 			}
 		}
 	}
@@ -190,12 +150,12 @@ static void update_rest_reminder_runtime(void)
 		return;
 	}
 
-	int ret = request_audio_event(APP_AUDIO_EVENT_REST_REMINDER);
+	int ret = reminder_events_request_audio(APP_AUDIO_EVENT_REST_REMINDER);
 	ESP_LOGI(TAG, "rest reminder fired present_s=%" PRIi64 " ret=%d",
 		 present_us / 1000000LL, ret);
 	if (ret == 0) {
 		reminder_rest_runtime_mark_fired(&s_rest_runtime);
-		publish_device_event("rest_reminder_triggered", NULL);
+		reminder_events_publish_device("rest_reminder_triggered", NULL);
 	}
 }
 

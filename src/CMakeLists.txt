@@ -55,6 +55,7 @@ idf_component_register(
     "modules/sync/sync_transport.c"
     "modules/sync/cJSON.c"
     "modules/reminder/reminder_env_alert.c"
+    "modules/reminder/reminder_events.c"
     "modules/reminder/reminder_rest_runtime.c"
     "modules/reminder/reminder_service.c"
     "modules/reminder/reminder_time_runtime.c"
