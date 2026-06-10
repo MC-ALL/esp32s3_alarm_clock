@@ -29,6 +29,7 @@ idf_component_register(
     "modules/sensing/environment_service.c"
     "modules/sensing/presence_ld2410.c"
     "modules/sensing/presence_service.c"
+    "modules/sensing/presence_uart.c"
     "modules/connectivity/net_http.c"
     "modules/connectivity/net_service.c"
     "modules/connectivity/net_time.c"

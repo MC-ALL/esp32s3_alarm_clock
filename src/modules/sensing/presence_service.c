@@ -2,12 +2,12 @@
 #include <hw_config.h>
 #include <presence_ld2410.h>
 #include <presence_service.h>
+#include <presence_uart.h>
 #include <module_common.h>
 
 #include <inttypes.h>
 #include <driver/gpio.h>
 #include <driver/uart.h>
-#include <esp_err.h>
 #include <esp_log.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
@@ -24,11 +24,6 @@ static uint32_t s_uart_rx_bytes;
 static presence_ld2410_parser_t s_ld2410_parser;
 static app_presence_status_t s_status;
 static portMUX_TYPE s_presence_lock = portMUX_INITIALIZER_UNLOCKED;
-
-static bool presence_uart_active_recently(int64_t now_us)
-{
-	return (s_last_uart_rx_us > 0) && ((now_us - s_last_uart_rx_us) < 1000000);
-}
 
 static void presence_refresh_derived_status(int64_t now_us)
 {
@@ -72,50 +67,15 @@ static void presence_apply_ld2410_frame(const presence_ld2410_frame_t *frame, vo
 	presence_refresh_derived_status(now_us);
 }
 
-static void presence_feed_bytes(const uint8_t *data, size_t len)
+static void presence_feed_bytes(const uint8_t *data, size_t len, void *ctx)
 {
+	(void)ctx;
 	if (data == NULL || len == 0U) {
 		return;
 	}
 
 	if (!presence_ld2410_parser_feed(&s_ld2410_parser, data, len, presence_apply_ld2410_frame, NULL)) {
 		ESP_LOGW(TAG, "rx frame buffer overflow, reset parser");
-	}
-}
-
-static void presence_drain_uart(size_t bytes_pending)
-{
-	uint8_t rx_buf[128];
-	size_t remaining = bytes_pending;
-
-	while (remaining > 0U) {
-		const size_t chunk = remaining > sizeof(rx_buf) ? sizeof(rx_buf) : remaining;
-		int read = uart_read_bytes(UART_NUM_1, rx_buf, chunk, 0);
-		if (read <= 0) {
-			break;
-		}
-
-		s_uart_rx_bytes += (uint32_t)read;
-		s_last_uart_rx_us = esp_timer_get_time();
-		presence_feed_bytes(rx_buf, (size_t)read);
-		remaining -= (size_t)read;
-	}
-
-	while (remaining == 0U) {
-		size_t buffered = 0;
-		if (uart_get_buffered_data_len(UART_NUM_1, &buffered) != ESP_OK || buffered == 0U) {
-			break;
-		}
-
-		const size_t chunk = buffered > sizeof(rx_buf) ? sizeof(rx_buf) : buffered;
-		int read = uart_read_bytes(UART_NUM_1, rx_buf, chunk, 0);
-		if (read <= 0) {
-			break;
-		}
-
-		s_uart_rx_bytes += (uint32_t)read;
-		s_last_uart_rx_us = esp_timer_get_time();
-		presence_feed_bytes(rx_buf, (size_t)read);
 	}
 }
 
@@ -129,11 +89,11 @@ static void presence_task(void *arg)
 	for (;;) {
 		if (xQueueReceive(s_uart_event_queue, &event, pdMS_TO_TICKS(100)) == pdTRUE) {
 			if (event.type == UART_DATA && event.size > 0) {
-				presence_drain_uart((size_t)event.size);
+				presence_uart_drain((size_t)event.size, presence_feed_bytes, NULL,
+						    &s_uart_rx_bytes, &s_last_uart_rx_us);
 			} else if (event.type == UART_FIFO_OVF || event.type == UART_BUFFER_FULL) {
 				ESP_LOGW(TAG, "uart overflow, flushing input");
-				(void)uart_flush_input(UART_NUM_1);
-				xQueueReset(s_uart_event_queue);
+				presence_uart_flush_input(s_uart_event_queue);
 				presence_ld2410_parser_reset(&s_ld2410_parser);
 			}
 		}
@@ -146,7 +106,7 @@ static void presence_task(void *arg)
 		if (s_last_uart_log_us == 0) {
 			s_last_uart_log_us = now_us;
 		} else if ((now_us - s_last_uart_log_us) >= 1000000) {
-			const bool uart_active = presence_uart_active_recently(now_us);
+			const bool uart_active = presence_uart_active_recently(s_last_uart_rx_us, now_us);
 			const int64_t recent_rx_ms = s_last_uart_rx_us > 0 ? ((now_us - s_last_uart_rx_us) / 1000) : -1;
 
 			ESP_LOGI(TAG,
@@ -179,49 +139,9 @@ static void presence_task(void *arg)
 
 int presence_service_init(void)
 {
-	const uart_config_t uart_cfg = {
-		.baud_rate = APP_LD2410_UART_BAUDRATE,
-		.data_bits = UART_DATA_8_BITS,
-		.parity = UART_PARITY_DISABLE,
-		.stop_bits = UART_STOP_BITS_1,
-		.flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-		.source_clk = UART_SCLK_DEFAULT,
-	};
-	const gpio_config_t out_cfg = {
-		.intr_type = GPIO_INTR_DISABLE,
-		.mode = GPIO_MODE_INPUT,
-		.pin_bit_mask = (1ULL << APP_PIN_LD2410_OUT),
-		.pull_down_en = GPIO_PULLDOWN_DISABLE,
-		.pull_up_en = GPIO_PULLUP_DISABLE,
-	};
-
-	esp_err_t err = gpio_config(&out_cfg);
-	if (err != ESP_OK) {
-		ESP_LOGE(TAG, "gpio_config failed: %s", esp_err_to_name(err));
-		return (int)err;
-	}
-
-	err = uart_driver_install(UART_NUM_1, 2048, 0, 16, &s_uart_event_queue, 0);
-	if (err != ESP_OK) {
-		ESP_LOGE(TAG, "uart_driver_install failed: %s", esp_err_to_name(err));
-		return (int)err;
-	}
-
-	err = uart_param_config(UART_NUM_1, &uart_cfg);
-	if (err != ESP_OK) {
-		ESP_LOGE(TAG, "uart_param_config failed: %s", esp_err_to_name(err));
-		(void)uart_driver_delete(UART_NUM_1);
-		s_uart_event_queue = NULL;
-		return (int)err;
-	}
-
-	err = uart_set_pin(UART_NUM_1, APP_PIN_LD2410_UART_TX, APP_PIN_LD2410_UART_RX,
-		UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-	if (err != ESP_OK) {
-		ESP_LOGE(TAG, "uart_set_pin failed: %s", esp_err_to_name(err));
-		(void)uart_driver_delete(UART_NUM_1);
-		s_uart_event_queue = NULL;
-		return (int)err;
+	int ret = presence_uart_init(&s_uart_event_queue);
+	if (ret != 0) {
+		return ret;
 	}
 
 	s_present_hint = gpio_get_level(APP_PIN_LD2410_OUT) != 0;
@@ -263,7 +183,7 @@ int presence_service_stop(void)
 	}
 
 	presence_ld2410_parser_reset(&s_ld2410_parser);
-	(void)uart_driver_delete(UART_NUM_1);
+	presence_uart_deinit();
 	return 0;
 }
 
