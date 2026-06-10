@@ -5,12 +5,12 @@
 #include <settings_model.h>
 #include <sync_config_pull.h>
 #include <sync_event_reporter.h>
+#include <sync_request_retry.h>
 #include <sync_settings_push.h>
 #include <sync_service.h>
 #include <sync_status_reporter.h>
 #include <sync_todo_cache.h>
 #include <sync_todo_ops.h>
-#include <sync_transport.h>
 
 #include <esp_log.h>
 #include <esp_timer.h>
@@ -22,30 +22,6 @@
 static const char *TAG = "sync";
 
 #define SYNC_REQUEST_QUEUE_DEPTH 8U
-#define SYNC_REQUEST_RETRY_DEPTH 8U
-
-typedef enum {
-	SYNC_REQUEST_PULL_CONFIG = 1,
-	SYNC_REQUEST_REPORT_STATUS,
-	SYNC_REQUEST_COMPLETE_TODO,
-	SYNC_REQUEST_DELETE_TODO,
-	SYNC_REQUEST_PUSH_ALARMS,
-	SYNC_REQUEST_PUSH_VOICE,
-	SYNC_REQUEST_REPORT_EVENT,
-} sync_request_type_t;
-
-typedef struct {
-	sync_request_type_t type;
-	char todo_id[24];
-	char event_type[32];
-	app_settings_t settings;
-} sync_request_t;
-
-typedef struct {
-	sync_request_t request;
-	uint8_t attempts;
-	int64_t next_due_us;
-} sync_request_retry_t;
 
 static app_todo_snapshot_t s_todo_snapshot;
 static app_device_config_snapshot_t s_device_config_snapshot;
@@ -57,8 +33,7 @@ static bool s_config_timer_running;
 static bool s_status_timer_running;
 static int64_t s_last_config_pull_us;
 static int64_t s_last_status_report_us;
-static sync_request_retry_t s_request_retries[SYNC_REQUEST_RETRY_DEPTH];
-static uint8_t s_request_retry_count;
+static sync_request_retry_state_t s_request_retries;
 
 static void sync_queue_request(const sync_request_t *request);
 
@@ -71,64 +46,7 @@ static void sync_publish_error(const char *reason)
 	(void)app_bus_publish(&event);
 }
 
-static void sync_retry_request_add(const sync_request_t *request, uint8_t attempts)
-{
-	if (request == NULL) {
-		return;
-	}
-	if (request->type == SYNC_REQUEST_PUSH_ALARMS || request->type == SYNC_REQUEST_PUSH_VOICE) {
-		for (uint8_t i = 0; i < s_request_retry_count; i++) {
-			if (s_request_retries[i].request.type == request->type) {
-				s_request_retries[i].request = *request;
-				s_request_retries[i].attempts = attempts;
-				s_request_retries[i].next_due_us =
-					esp_timer_get_time() +
-					(int64_t)sync_backoff_s(attempts + 1U, 5U, 300U) * 1000000LL;
-				return;
-			}
-		}
-	}
-	if (s_request_retry_count >= SYNC_REQUEST_RETRY_DEPTH) {
-		memmove(&s_request_retries[0], &s_request_retries[1],
-			sizeof(s_request_retries[0]) * (SYNC_REQUEST_RETRY_DEPTH - 1U));
-		s_request_retry_count = SYNC_REQUEST_RETRY_DEPTH - 1U;
-	}
-
-	sync_request_retry_t *slot = &s_request_retries[s_request_retry_count++];
-	memset(slot, 0, sizeof(*slot));
-	slot->request = *request;
-	slot->attempts = attempts;
-	slot->next_due_us =
-		esp_timer_get_time() + (int64_t)sync_backoff_s(attempts + 1U, 5U, 300U) * 1000000LL;
-}
-
-static bool sync_request_retryable(sync_request_type_t type)
-{
-	return type == SYNC_REQUEST_COMPLETE_TODO || type == SYNC_REQUEST_DELETE_TODO ||
-	       type == SYNC_REQUEST_PUSH_ALARMS || type == SYNC_REQUEST_PUSH_VOICE;
-}
-
 static int sync_execute_request(const sync_request_t *request);
-
-static void sync_process_request_retries(void)
-{
-	const int64_t now_us = esp_timer_get_time();
-	for (uint8_t i = 0; i < s_request_retry_count;) {
-		sync_request_retry_t *retry = &s_request_retries[i];
-		if (now_us < retry->next_due_us) {
-			i++;
-			continue;
-		}
-		if (sync_execute_request(&retry->request) == 0) {
-			memmove(retry, retry + 1, sizeof(*retry) * (s_request_retry_count - i - 1U));
-			s_request_retry_count--;
-			continue;
-		}
-		retry->attempts++;
-		retry->next_due_us = now_us + (int64_t)sync_backoff_s(retry->attempts, 5U, 300U) * 1000000LL;
-		i++;
-	}
-}
 
 static void sync_handle_config_conflict(void *ctx)
 {
@@ -245,10 +163,10 @@ static void sync_task(void *arg)
 		sync_request_t request = { 0 };
 		if (xQueueReceive(s_request_queue, &request, pdMS_TO_TICKS(1000)) == pdTRUE) {
 			if (sync_execute_request(&request) != 0 && sync_request_retryable(request.type)) {
-				sync_retry_request_add(&request, 0);
+				sync_request_retry_add(&s_request_retries, &request, 0);
 			}
 		}
-		sync_process_request_retries();
+		sync_request_retry_process(&s_request_retries, sync_execute_request);
 		sync_event_reporter_process_retries();
 	}
 }
@@ -280,6 +198,7 @@ int sync_service_init(void)
 		.config_version = 0,
 		.settings = defaults,
 	};
+	s_request_retries = (sync_request_retry_state_t){ 0 };
 	(void)sync_todo_cache_load(&s_todo_snapshot);
 
 	if (s_request_queue == NULL) {
