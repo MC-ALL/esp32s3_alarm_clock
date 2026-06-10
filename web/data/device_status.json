@@ -1,0 +1,9 @@
+{
+  "device_id": "clock-001",
+  "updated_at": "",
+  "online": false,
+  "temperature_c": null,
+  "humidity_percent": null,
+  "lux": null,
+  "presence_detected": null
+}

@@ -1,0 +1,34 @@
+{
+  "config_version": 1,
+  "updated_at": "2026-06-09T20:00:00+08:00",
+  "alarms": [
+    {
+      "hour": 7,
+      "minute": 30,
+      "repeat": true,
+      "enabled": true,
+      "voice": true
+    },
+    {
+      "hour": 8,
+      "minute": 0,
+      "repeat": true,
+      "enabled": true,
+      "voice": true
+    },
+    {
+      "hour": 20,
+      "minute": 15,
+      "repeat": false,
+      "enabled": true,
+      "voice": false
+    }
+  ],
+  "voice_settings": {
+    "todo_voice_on": true,
+    "alarm_voice_on": true,
+    "env_voice_on": true,
+    "env_alert_on": true,
+    "home_hour_chime_on": true
+  }
+}
