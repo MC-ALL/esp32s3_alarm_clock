@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-panel events-page-panel">
+  <section class="panel-card events-card single-page-card">
+    <div class="section-head compact-head">
+      <div>
+        <h2>事件历史</h2>
+        <p class="section-note">事件只存 Web 后端，设备不保留历史。</p>
+      </div>
+      <button id="refresh-events" class="ghost-button" type="button">刷新</button>
+    </div>
+    <div class="filter-row">
+      <select id="event-type-filter">
+        <option value="">全部事件</option>
+        <option value="todo_completed">Todo 完成</option>
+        <option value="todo_deleted">Todo 删除</option>
+        <option value="alarm_triggered">闹钟触发</option>
+        <option value="rest_reminder_triggered">休息提醒</option>
+        <option value="env_alert_triggered">环境提醒</option>
+        <option value="welcome_played">欢迎提示</option>
+        <option value="todo_sync_up_played">Todo 同步提示</option>
+      </select>
+    </div>
+    <div id="events-list" class="event-list"></div>
+  </section>
+
+  <template id="event-item-template">
+    <article class="event-item">
+      <div class="event-top-row">
+        <strong class="event-type"></strong>
+        <span class="event-time"></span>
+      </div>
+      <p class="event-meta"></p>
+    </article>
+  </template>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/events.js?v=20260610a" defer></script>
+{% endblock %}

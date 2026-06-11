@@ -57,6 +57,14 @@ static void sync_todo_ops_publish_error(const char *reason)
 	(void)app_bus_publish(&event);
 }
 
+static void sync_todo_ops_request_resync(void)
+{
+	app_bus_event_t event = {
+		.type = APP_BUS_EVENT_TODO_SYNC_REQUEST,
+	};
+	(void)app_bus_publish(&event);
+}
+
 static int sync_todo_ops_apply_success(app_todo_snapshot_t *todo_snapshot, const char *todo_id, const char *event_type)
 {
 	sync_todo_ops_remove_from_cache(todo_snapshot, todo_id);
@@ -79,9 +87,16 @@ int sync_todo_ops_complete_once(app_todo_snapshot_t *todo_snapshot, const char *
 	char response[256] = { 0 };
 	int status = 0;
 	int ret = sync_transport_http_request("POST", path, NULL, response, sizeof(response), &status);
-	if (ret != 0 || (status != 200 && status != 404)) {
+	if (ret == 0 && status == 404) {
+		todo_snapshot->sync_ok = false;
+		strlcpy(todo_snapshot->last_error, "todo missing on web", sizeof(todo_snapshot->last_error));
+		sync_todo_ops_publish_error(todo_snapshot->last_error);
+		sync_todo_ops_request_resync();
+		return 0;
+	}
+	if (ret != 0 || status != 200) {
 		(void)snprintf(todo_snapshot->last_error, sizeof(todo_snapshot->last_error),
-			       "todo complete err=%d status=%d", ret, status);
+				       "todo complete err=%d status=%d", ret, status);
 		sync_todo_ops_publish_error(todo_snapshot->last_error);
 		return -1;
 	}
@@ -100,9 +115,16 @@ int sync_todo_ops_delete_once(app_todo_snapshot_t *todo_snapshot, const char *to
 	char response[64] = { 0 };
 	int status = 0;
 	int ret = sync_transport_http_request("DELETE", path, NULL, response, sizeof(response), &status);
-	if (ret != 0 || (status != 204 && status != 404)) {
+	if (ret == 0 && status == 404) {
+		todo_snapshot->sync_ok = false;
+		strlcpy(todo_snapshot->last_error, "todo missing on web", sizeof(todo_snapshot->last_error));
+		sync_todo_ops_publish_error(todo_snapshot->last_error);
+		sync_todo_ops_request_resync();
+		return 0;
+	}
+	if (ret != 0 || status != 204) {
 		(void)snprintf(todo_snapshot->last_error, sizeof(todo_snapshot->last_error),
-			       "todo delete err=%d status=%d", ret, status);
+				       "todo delete err=%d status=%d", ret, status);
 		sync_todo_ops_publish_error(todo_snapshot->last_error);
 		return -1;
 	}

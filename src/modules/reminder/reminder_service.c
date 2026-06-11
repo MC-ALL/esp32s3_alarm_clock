@@ -35,11 +35,13 @@ static void update_alarm_runtime(app_settings_t *settings, const struct tm *t)
 		return;
 	}
 
-	reminder_events_publish_device("alarm_triggered", NULL);
 	if (settings->alarm_voice_on && fire.alarm.voice) {
 		int ret = reminder_events_request_audio(APP_AUDIO_EVENT_ALARM);
 		ESP_LOGI(TAG, "alarm fired index=%u time=%02u:%02u ret=%d",
 			 (unsigned)fire.index, (unsigned)fire.alarm.hour, (unsigned)fire.alarm.minute, ret);
+		if (ret == 0) {
+			reminder_events_publish_device("alarm_triggered", NULL);
+		}
 	} else {
 		ESP_LOGI(TAG, "alarm fired index=%u time=%02u:%02u voice=0",
 			 (unsigned)fire.index, (unsigned)fire.alarm.hour, (unsigned)fire.alarm.minute);
@@ -76,9 +78,9 @@ static void update_todo_runtime(const app_settings_t *settings)
 	uint8_t new_count = reminder_todo_runtime_update(&s_todo_runtime, &todo);
 	if (new_count > 0U) {
 		ESP_LOGI(TAG, "new todo alert count=%u voice=%d", (unsigned)new_count, settings->todo_voice_on ? 1 : 0);
-		if (settings->todo_voice_on) {
-			int ret = reminder_events_request_audio(APP_AUDIO_EVENT_TODO_SYNC_UP);
-			ESP_LOGI(TAG, "todo voice ret=%d", ret);
+	if (settings->todo_voice_on) {
+		int ret = reminder_events_request_audio(APP_AUDIO_EVENT_TODO_SYNC_UP);
+		ESP_LOGI(TAG, "todo voice ret=%d", ret);
 			if (ret == 0) {
 				reminder_events_publish_device("todo_sync_up_played", NULL);
 			}

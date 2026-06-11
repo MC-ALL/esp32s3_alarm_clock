@@ -14,6 +14,7 @@
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <string.h>
 
@@ -27,8 +28,14 @@ static QueueHandle_t s_request_queue;
 static TaskHandle_t s_sync_task;
 static sync_periodic_timer_t s_periodic_timer;
 static sync_request_retry_state_t s_request_retries;
+static SemaphoreHandle_t s_snapshot_mutex;
 
 static void sync_queue_request(const sync_request_t *request);
+static void sync_copy_snapshots(app_todo_snapshot_t *todo_snapshot,
+				app_device_config_snapshot_t *device_config_snapshot);
+static void sync_commit_snapshots(const app_todo_snapshot_t *todo_snapshot,
+				  const app_device_config_snapshot_t *device_config_snapshot);
+static bool sync_request_updates_snapshots(sync_request_type_t type);
 
 static void sync_publish_error(const char *reason)
 {
@@ -45,6 +52,15 @@ static void sync_handle_config_conflict(void *ctx)
 {
 	(void)ctx;
 	ESP_LOGW(TAG, "config version conflict, re-pulling Web config");
+	app_device_config_snapshot_t snapshot = { 0 };
+	sync_copy_snapshots(NULL, &snapshot);
+	if (settings_model_set(&snapshot.settings) == 0) {
+		app_bus_event_t updated = {
+			.type = APP_BUS_EVENT_WEB_CONFIG_UPDATED,
+		};
+		updated.data.settings.settings = snapshot.settings;
+		(void)app_bus_publish(&updated);
+	}
 	sync_config_pull_reset_backoff();
 	sync_queue_request(&(sync_request_t){ .type = SYNC_REQUEST_PULL_CONFIG });
 }
@@ -81,12 +97,20 @@ static void sync_bus_handler(const app_bus_event_t *event, void *ctx)
 
 static int sync_execute_request(const sync_request_t *request)
 {
+	app_todo_snapshot_t todo_snapshot = { 0 };
+	app_device_config_snapshot_t device_config_snapshot = { 0 };
+	sync_copy_snapshots(&todo_snapshot, &device_config_snapshot);
+
 	const sync_request_executor_t executor = {
-		.todo_snapshot = &s_todo_snapshot,
-		.device_config_snapshot = &s_device_config_snapshot,
+		.todo_snapshot = &todo_snapshot,
+		.device_config_snapshot = &device_config_snapshot,
 		.on_config_conflict = sync_handle_config_conflict,
 	};
-	return sync_request_executor_execute(&executor, request);
+	int ret = sync_request_executor_execute(&executor, request);
+	if (ret == 0 && sync_request_updates_snapshots(request->type)) {
+		sync_commit_snapshots(&todo_snapshot, &device_config_snapshot);
+	}
+	return ret;
 }
 
 static void sync_task(void *arg)
@@ -109,7 +133,7 @@ bool sync_service_get_todo_snapshot(app_todo_snapshot_t *out_snapshot)
 	if (out_snapshot == NULL) {
 		return false;
 	}
-	*out_snapshot = s_todo_snapshot;
+	sync_copy_snapshots(out_snapshot, NULL);
 	return true;
 }
 
@@ -118,7 +142,7 @@ bool sync_service_get_device_config_snapshot(app_device_config_snapshot_t *out_s
 	if (out_snapshot == NULL) {
 		return false;
 	}
-	*out_snapshot = s_device_config_snapshot;
+	sync_copy_snapshots(NULL, out_snapshot);
 	return true;
 }
 
@@ -126,6 +150,12 @@ int sync_service_init(void)
 {
 	app_settings_t defaults = { 0 };
 	settings_model_defaults(&defaults);
+	if (s_snapshot_mutex == NULL) {
+		s_snapshot_mutex = xSemaphoreCreateMutex();
+		if (s_snapshot_mutex == NULL) {
+			return -1;
+		}
+	}
 	s_todo_snapshot = (app_todo_snapshot_t){ 0 };
 	s_device_config_snapshot = (app_device_config_snapshot_t){
 		.config_version = 0,
@@ -183,5 +213,68 @@ int sync_service_stop(void)
 		s_request_queue = NULL;
 	}
 	sync_periodic_timer_deinit(&s_periodic_timer);
+	if (s_snapshot_mutex != NULL) {
+		vSemaphoreDelete(s_snapshot_mutex);
+		s_snapshot_mutex = NULL;
+	}
 	return 0;
+}
+
+static void sync_copy_snapshots(app_todo_snapshot_t *todo_snapshot,
+				app_device_config_snapshot_t *device_config_snapshot)
+{
+	if (s_snapshot_mutex != NULL) {
+		if (xSemaphoreTake(s_snapshot_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+			if (todo_snapshot != NULL) {
+				*todo_snapshot = s_todo_snapshot;
+			}
+			if (device_config_snapshot != NULL) {
+				*device_config_snapshot = s_device_config_snapshot;
+			}
+			xSemaphoreGive(s_snapshot_mutex);
+			return;
+		}
+	}
+
+	if (todo_snapshot != NULL) {
+		*todo_snapshot = s_todo_snapshot;
+	}
+	if (device_config_snapshot != NULL) {
+		*device_config_snapshot = s_device_config_snapshot;
+	}
+}
+
+static void sync_commit_snapshots(const app_todo_snapshot_t *todo_snapshot,
+				  const app_device_config_snapshot_t *device_config_snapshot)
+{
+	if (todo_snapshot == NULL && device_config_snapshot == NULL) {
+		return;
+	}
+
+	if (s_snapshot_mutex != NULL) {
+		if (xSemaphoreTake(s_snapshot_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+			if (todo_snapshot != NULL) {
+				s_todo_snapshot = *todo_snapshot;
+			}
+			if (device_config_snapshot != NULL) {
+				s_device_config_snapshot = *device_config_snapshot;
+			}
+			xSemaphoreGive(s_snapshot_mutex);
+			return;
+		}
+	}
+
+	if (todo_snapshot != NULL) {
+		s_todo_snapshot = *todo_snapshot;
+	}
+	if (device_config_snapshot != NULL) {
+		s_device_config_snapshot = *device_config_snapshot;
+	}
+}
+
+static bool sync_request_updates_snapshots(sync_request_type_t type)
+{
+	return type == SYNC_REQUEST_PULL_CONFIG || type == SYNC_REQUEST_COMPLETE_TODO ||
+	       type == SYNC_REQUEST_DELETE_TODO || type == SYNC_REQUEST_PUSH_ALARMS ||
+	       type == SYNC_REQUEST_PUSH_VOICE;
 }

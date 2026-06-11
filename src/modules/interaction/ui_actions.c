@@ -57,14 +57,19 @@ int ui_actions_publish_device_event(const char *event_type, const char *todo_id)
 	return app_bus_publish(&event);
 }
 
+int ui_actions_request_audio(app_audio_event_t event_id)
+{
+	app_bus_event_t event = {
+		.type = APP_BUS_EVENT_AUDIO_PLAY_REQUEST,
+	};
+	event.data.audio.event_id = event_id;
+	return app_bus_publish(&event);
+}
+
 static void play_voice_test(const app_audio_event_t *events, size_t count)
 {
 	for (size_t i = 0; i < count; i++) {
-		app_bus_event_t event = {
-			.type = APP_BUS_EVENT_AUDIO_PLAY_REQUEST,
-		};
-		event.data.audio.event_id = events[i];
-		int ret = app_bus_publish(&event);
+		int ret = ui_actions_request_audio(events[i]);
 		ESP_LOGI(TAG, "voice test event=%d ret=%d", (int)events[i], ret);
 	}
 }

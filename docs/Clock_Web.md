@@ -90,9 +90,37 @@ If the service is down:
 - the clock keeps the last successful active Todo and configuration cache
 - status/event reports may fail and retry later according to device policy
 
-## 6. Data Model
+## 6. Current Web Pages
 
-### 6.1 Active Todo
+The current Web frontend is organized as six independent pages:
+
+- `/status` device status page
+- `/todos` active/completed Todo page
+- `/alarms` alarm management page
+- `/voice` voice settings page
+- `/events` event history page
+- `/model` model dialog placeholder page
+
+The root path:
+
+- `/`
+  - redirects to `/status`
+
+All six pages share a common top navigation bar with six buttons:
+
+- 设备状态
+- 待办
+- 闹钟
+- 语音
+- 事件
+- 模型
+
+This page split changes only the frontend presentation structure.
+The underlying Web/device APIs remain the same.
+
+## 7. Data Model
+
+### 7.1 Active Todo
 
 ```json
 {
@@ -103,7 +131,7 @@ If the service is down:
 }
 ```
 
-### 6.2 Completed Todo
+### 7.2 Completed Todo
 
 ```json
 {
@@ -118,7 +146,7 @@ If the service is down:
 Completed Todo is Web-only and read-only.
 It is not sent back to the device.
 
-### 6.3 Device Config Snapshot
+### 7.3 Device Config Snapshot
 
 ```json
 {
@@ -150,7 +178,7 @@ It is not sent back to the device.
 }
 ```
 
-### 6.4 Device Status Snapshot
+### 7.4 Device Status Snapshot
 
 ```json
 {
@@ -164,7 +192,7 @@ It is not sent back to the device.
 }
 ```
 
-### 6.5 Event History Item
+### 7.5 Event History Item
 
 ```json
 {
@@ -179,9 +207,9 @@ It is not sent back to the device.
 }
 ```
 
-## 7. Current API
+## 8. Current API
 
-### 7.1 Todo APIs
+### 8.1 Todo APIs
 
 - `GET /api/todos`
   - returns active Todo and completed Todo archive for Web UI use
@@ -196,19 +224,19 @@ It is not sent back to the device.
 - `DELETE /api/todos/{id}`
   - permanently delete active Todo
 
-### 7.2 Device Config APIs
+### 8.2 Device Config APIs
 
 - `GET /api/device/config`
 - `PUT /api/device/config`
 - `PUT /api/device/alarms`
 - `PUT /api/device/voice-settings`
 
-### 7.3 Device Status APIs
+### 8.3 Device Status APIs
 
 - `POST /api/device/status`
 - `GET /api/device/status`
 
-### 7.4 Device Event APIs
+### 8.4 Device Event APIs
 
 - `POST /api/device/events`
 - `GET /api/device/events`
@@ -219,7 +247,7 @@ Current simplified event filtering:
 - by `date_to`
 - by `limit`
 
-## 8. Storage Layout
+## 9. Storage Layout
 
 Current JSON storage layout:
 - `data/todos_active.json`
@@ -230,7 +258,7 @@ Current JSON storage layout:
 
 Legacy `data/todos.json` may still exist as an import source, but the current runtime model uses the new split files.
 
-## 9. Key Business Rules
+## 10. Key Business Rules
 
 1. Web is the source of truth for active Todo, alarm configuration, and voice settings.
 2. The clock only pulls unfinished Todo.
@@ -239,7 +267,7 @@ Legacy `data/todos.json` may still exist as an import source, but the current ru
 5. Device-side alarm/voice edits should immediately write back to Web.
 6. Event history exists only on Web.
 
-## 10. Current Positioning
+## 11. Current Positioning
 
 This Web side should now be understood as a lightweight local control center rather than only a Todo text editor.
 

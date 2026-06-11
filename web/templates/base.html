@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ page_title }} - 时钟控制中心</title>
+    <link rel="stylesheet" href="/static/style.css?v=20260610a" />
+  </head>
+  <body>
+    <div class="page-shell"></div>
+    <main class="app-shell subpage-shell">
+      <header class="app-header">
+        <div class="title-block">
+          <p class="eyebrow">SMART CLOCK CONTROL CENTER</p>
+          <h1>{{ page_title }}</h1>
+          <p class="header-note">Web 管配置，设备拉取执行；设备上报状态和事件。</p>
+        </div>
+        <div id="save-status" class="save-status idle">空闲</div>
+      </header>
+
+      <nav class="page-nav" aria-label="功能导航">
+        <a class="nav-link{% if active_page == 'status' %} active{% endif %}" href="/status">设备状态</a>
+        <a class="nav-link{% if active_page == 'todos' %} active{% endif %}" href="/todos">待办</a>
+        <a class="nav-link{% if active_page == 'alarms' %} active{% endif %}" href="/alarms">闹钟</a>
+        <a class="nav-link{% if active_page == 'voice' %} active{% endif %}" href="/voice">语音</a>
+        <a class="nav-link{% if active_page == 'events' %} active{% endif %}" href="/events">事件</a>
+        <a class="nav-link{% if active_page == 'model' %} active{% endif %}" href="/model">模型</a>
+      </nav>
+
+      <section id="load-error" class="error-panel" hidden>
+        <p>页面数据加载失败。</p>
+        <p id="load-error-detail" class="error-detail" hidden></p>
+        <button id="retry-load" type="button">重试</button>
+      </section>
+
+      {% block content %}{% endblock %}
+    </main>
+
+    <script>
+      window.__PAGE__ = {{ active_page|tojson }};
+    </script>
+    <script src="/static/common.js?v=20260610a" defer></script>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

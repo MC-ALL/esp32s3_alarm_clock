@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-panel status-page-panel">
+  <section class="panel-card status-card single-page-card">
+    <div class="section-head compact-head">
+      <div>
+        <h2>设备状态</h2>
+        <p class="section-note">最近一次状态上报快照</p>
+      </div>
+      <button id="refresh-status" class="ghost-button" type="button">刷新</button>
+    </div>
+    <div class="status-grid">
+      <article class="metric-tile">
+        <span class="metric-label">在线</span>
+        <strong id="device-online" class="metric-value">--</strong>
+      </article>
+      <article class="metric-tile">
+        <span class="metric-label">温度</span>
+        <strong id="device-temp" class="metric-value">--</strong>
+      </article>
+      <article class="metric-tile">
+        <span class="metric-label">湿度</span>
+        <strong id="device-humi" class="metric-value">--</strong>
+      </article>
+      <article class="metric-tile">
+        <span class="metric-label">光照</span>
+        <strong id="device-lux" class="metric-value">--</strong>
+      </article>
+      <article class="metric-tile metric-wide">
+        <span class="metric-label">是否有人</span>
+        <strong id="device-presence" class="metric-value">--</strong>
+      </article>
+      <article class="metric-tile metric-wide">
+        <span class="metric-label">上次更新</span>
+        <strong id="device-updated-at" class="metric-value small">--</strong>
+      </article>
+    </div>
+  </section>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/status.js?v=20260610a" defer></script>
+{% endblock %}

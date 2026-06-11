@@ -124,6 +124,33 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 Replace the serial port with your local device.
 
+### 3.4 Local Web Preview
+
+If you only want to preview the Web control-center UI locally, you can start the Web app on the loopback address without exposing it to the LAN.
+
+From the `web/` directory:
+
+```bash
+pip install -r requirements.txt
+uvicorn app:app --host 127.0.0.1 --port 8080 --reload
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8080/status
+```
+
+Other local pages include:
+
+- `http://127.0.0.1:8080/todos`
+- `http://127.0.0.1:8080/alarms`
+- `http://127.0.0.1:8080/voice`
+- `http://127.0.0.1:8080/events`
+- `http://127.0.0.1:8080/model`
+
+This loopback-only mode is mainly for checking page layout and interaction effects. It is not suitable for real device-side sync testing, because the device cannot access `127.0.0.1` on your development machine.
+
 ## 4. Current Runtime Notes
 
 ### Time Sync

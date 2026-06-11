@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.requests import Request
@@ -468,9 +468,50 @@ def update_device_config(alarms: list[dict[str, Any]] | None, voice_settings: di
     }
 
 
+def render_page(request: Request, name: str, active_page: str, page_title: str) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request=request,
+        name=name,
+        context={
+            "active_page": active_page,
+            "page_title": page_title,
+        },
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request=request, name="index.html", context={})
+def index(request: Request) -> RedirectResponse:
+    return RedirectResponse(url="/status", status_code=302)
+
+
+@app.get("/status", response_class=HTMLResponse)
+def status_page(request: Request) -> HTMLResponse:
+    return render_page(request, "status.html", "status", "设备状态")
+
+
+@app.get("/todos", response_class=HTMLResponse)
+def todos_page(request: Request) -> HTMLResponse:
+    return render_page(request, "todos.html", "todos", "待办事项")
+
+
+@app.get("/alarms", response_class=HTMLResponse)
+def alarms_page(request: Request) -> HTMLResponse:
+    return render_page(request, "alarms.html", "alarms", "闹钟管理")
+
+
+@app.get("/voice", response_class=HTMLResponse)
+def voice_page(request: Request) -> HTMLResponse:
+    return render_page(request, "voice.html", "voice", "语音设置")
+
+
+@app.get("/events", response_class=HTMLResponse)
+def events_page(request: Request) -> HTMLResponse:
+    return render_page(request, "events.html", "events", "事件历史")
+
+
+@app.get("/model", response_class=HTMLResponse)
+def model_page(request: Request) -> HTMLResponse:
+    return render_page(request, "model.html", "model", "模型对话页")
 
 
 @app.get("/health")

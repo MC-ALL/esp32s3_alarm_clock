@@ -565,3 +565,76 @@ button:disabled {
     flex-direction: column;
   }
 }
+
+.page-nav {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.nav-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--muted-strong);
+  text-decoration: none;
+  transition: transform var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+}
+
+.nav-link:hover {
+  transform: translateY(-1px);
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.nav-link.active {
+  border-color: rgba(184, 216, 255, 0.45);
+  background: rgba(184, 216, 255, 0.12);
+  color: var(--accent);
+}
+
+.subpage-shell {
+  width: min(980px, 100%);
+}
+
+.page-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.single-page-card {
+  min-height: 0;
+}
+
+.compact-gap-card {
+  margin-top: 0;
+}
+
+.status-page-panel .status-card,
+.todos-page-panel .todo-card,
+.alarms-page-panel .alarms-card,
+.voice-page-panel .voice-card,
+.events-page-panel .events-card,
+.model-page-panel .model-card,
+.todos-page-panel .completed-card {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .page-nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .page-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

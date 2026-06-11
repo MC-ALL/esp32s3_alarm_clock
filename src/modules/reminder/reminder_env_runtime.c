@@ -69,8 +69,10 @@ void reminder_env_runtime_update(reminder_env_runtime_t *runtime, const app_sett
 	if (settings->env_voice_on) {
 		int ret = reminder_events_request_audio(event);
 		ESP_LOGI(TAG, "env voice event=%s ret=%d", reminder_env_alert_name(event), ret);
+		if (ret == 0) {
+			reminder_events_publish_device("env_alert_triggered", NULL);
+		}
 	}
-	reminder_events_publish_device("env_alert_triggered", NULL);
 	runtime->last_alert_play_us = now_us;
 	runtime->active_alert = event;
 }

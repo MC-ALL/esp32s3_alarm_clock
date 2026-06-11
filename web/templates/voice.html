@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-panel voice-page-panel">
+  <section class="panel-card voice-card single-page-card">
+    <div class="section-head compact-head">
+      <div>
+        <h2>语音设置</h2>
+        <p class="section-note">与设备端现有语音开关字段保持一致。</p>
+      </div>
+      <button id="save-voice-settings" type="button">保存设置</button>
+    </div>
+    <div id="voice-settings" class="toggle-grid">
+      <label class="toggle-card"><input id="voice-todo" type="checkbox" /><span>Todo 提示</span></label>
+      <label class="toggle-card"><input id="voice-alarm" type="checkbox" /><span>闹钟提醒</span></label>
+      <label class="toggle-card"><input id="voice-env" type="checkbox" /><span>环境语音</span></label>
+      <label class="toggle-card"><input id="voice-env-alert" type="checkbox" /><span>环境提醒</span></label>
+      <label class="toggle-card"><input id="voice-hour-chime" type="checkbox" /><span>整点提示</span></label>
+    </div>
+  </section>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/voice.js?v=20260610a" defer></script>
+{% endblock %}

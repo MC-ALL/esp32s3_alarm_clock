@@ -107,7 +107,10 @@ static void update_low_clock_presence_runtime(void)
 
 	if (action == UI_LOW_CLOCK_ACTION_EXIT) {
 		s_dirty = true;
-		(void)ui_actions_publish_device_event("welcome_played", NULL);
+		int ret = ui_actions_request_audio(APP_AUDIO_EVENT_WELCOME);
+		if (ret == 0) {
+			(void)ui_actions_publish_device_event("welcome_played", NULL);
+		}
 		ESP_LOGI(TAG, "exit low clock present_s=%" PRIi64 " threshold=%u healthy=%d fallback=%d",
 			 result.duration_s,
 			 (unsigned)result.threshold_s,

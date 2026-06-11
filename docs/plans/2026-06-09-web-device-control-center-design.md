@@ -246,6 +246,21 @@ Recommended Web pages:
 5. voice settings page
 6. model dialog page placeholder
 
+Recommended routes:
+
+- `/status`
+- `/todos`
+- `/alarms`
+- `/voice`
+- `/events`
+- `/model`
+
+Recommended default entry:
+
+- `/` -> redirect to `/status`
+
+All pages should share the same top navigation with six buttons.
+
 ### 8.1 Device Status Page
 
 Shows:
