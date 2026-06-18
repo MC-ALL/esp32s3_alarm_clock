@@ -1,4 +1,5 @@
 window.AppCommon = (() => {
+  const DEVICE_CONNECTION_MAX_AGE_MS = 30 * 1000;
   const uiText = {
     idle: "空闲",
     loading: "加载中...",
@@ -11,6 +12,40 @@ window.AppCommon = (() => {
   };
 
   let saveTimer = null;
+  const deviceConnectionState = {
+    known: false,
+    connected: false,
+    status: null,
+    checkedAtMs: 0,
+  };
+
+  function parseTimestampMs(value) {
+    if (!value) {
+      return null;
+    }
+    const parsed = Date.parse(String(value));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function isDeviceConnected(status) {
+    if (!status || status.online !== true) {
+      return false;
+    }
+    const updatedAtMs = parseTimestampMs(status.updated_at);
+    if (updatedAtMs == null) {
+      return false;
+    }
+    const ageMs = Date.now() - updatedAtMs;
+    return ageMs >= -5000 && ageMs <= DEVICE_CONNECTION_MAX_AGE_MS;
+  }
+
+  function renderDeviceConnectionNotice() {
+    const panel = document.querySelector("#device-connection-notice");
+    if (!panel) {
+      return;
+    }
+    panel.hidden = !deviceConnectionState.known || deviceConnectionState.connected;
+  }
 
   function setStatus(mode, text) {
     const el = document.querySelector("#save-status");
@@ -72,7 +107,16 @@ window.AppCommon = (() => {
   }
 
   function formatTimestamp(value) {
-    return value || "--";
+    if (!value) {
+      return "--";
+    }
+
+    const raw = String(value).trim();
+    const match = raw.match(/^(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2})/);
+    if (match) {
+      return `${match[1]} ${match[2]}`;
+    }
+    return raw;
   }
 
   function clearLoadError() {
@@ -97,6 +141,21 @@ window.AppCommon = (() => {
     setStatus("error", uiText.loadFailed);
   }
 
+  async function loadDeviceConnectionState(forceRefresh = false) {
+    const now = Date.now();
+    if (!forceRefresh && deviceConnectionState.known && now - deviceConnectionState.checkedAtMs < 5000) {
+      return { ...deviceConnectionState };
+    }
+
+    const status = await request("/api/device/status");
+    deviceConnectionState.known = true;
+    deviceConnectionState.status = status;
+    deviceConnectionState.connected = isDeviceConnected(status);
+    deviceConnectionState.checkedAtMs = now;
+    renderDeviceConnectionNotice();
+    return { ...deviceConnectionState };
+  }
+
   function bindRetry(handler) {
     const button = document.querySelector("#retry-load");
     if (!button || typeof handler !== "function") {
@@ -109,6 +168,11 @@ window.AppCommon = (() => {
     clearLoadError();
     setStatus("saving", uiText.loading);
     try {
+      try {
+        await loadDeviceConnectionState(true);
+      } catch {
+        renderDeviceConnectionNotice();
+      }
       await loader();
       setStatus("saved", uiText.ready);
     } catch (error) {
@@ -122,6 +186,8 @@ window.AppCommon = (() => {
     setStatus,
     buildEmptyState,
     formatTimestamp,
+    isDeviceConnected,
+    loadDeviceConnectionState,
     clearLoadError,
     showLoadError,
     bindRetry,

@@ -5,10 +5,11 @@
     <div class="section-head compact-head">
       <div>
         <h2>设备状态</h2>
-        <p class="section-note">最近一次状态上报快照</p>
+        <p class="section-note">查看当前设备状态</p>
       </div>
       <button id="refresh-status" class="ghost-button" type="button">刷新</button>
     </div>
+    <p id="status-unavailable-note" class="soft-note" hidden>请先连接闹钟，连接后可查看当前状态。</p>
     <div class="status-grid">
       <article class="metric-tile">
         <span class="metric-label">在线</span>
@@ -27,7 +28,7 @@
         <strong id="device-lux" class="metric-value">--</strong>
       </article>
       <article class="metric-tile metric-wide">
-        <span class="metric-label">是否有人</span>
+        <span class="metric-label">在位状态</span>
         <strong id="device-presence" class="metric-value">--</strong>
       </article>
       <article class="metric-tile metric-wide">

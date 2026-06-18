@@ -357,6 +357,25 @@ button:disabled {
   font-size: 13px;
 }
 
+.soft-notice,
+.soft-note {
+  color: var(--muted-strong);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.soft-notice {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 226, 190, 0.16);
+  border-radius: 16px;
+  background: rgba(255, 226, 190, 0.055);
+}
+
+.soft-note {
+  margin: 0 0 14px;
+}
+
 .error-panel {
   margin-top: 18px;
   display: grid;
@@ -655,21 +674,33 @@ button:disabled {
 
 .report-hero h3 {
   font-family: "Iowan Old Style", "Songti SC", "Noto Serif SC", serif;
-  font-size: 26px;
-  line-height: 1.05;
-  letter-spacing: -0.04em;
+  font-size: 28px;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
 }
 
 .report-meta-block {
-  min-width: 180px;
+  min-width: 156px;
   display: grid;
-  gap: 12px;
+  gap: 10px;
+  justify-items: end;
 }
 
-.report-risk,
-.report-meta {
+.report-risk {
   display: grid;
-  gap: 4px;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.028);
+}
+
+.report-generated-at {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
 }
 
 .report-section-grid,

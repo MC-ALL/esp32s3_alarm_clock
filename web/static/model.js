@@ -1,11 +1,12 @@
 const modelPage = (() => {
-  const { request, bindRetry, runPageLoader, setStatus, uiText } = window.AppCommon;
+  const { request, bindRetry, runPageLoader, setStatus, uiText, formatTimestamp, loadDeviceConnectionState } = window.AppCommon;
   const state = {
     messages: [],
     latestReport: null,
     sending: false,
     generatingReport: false,
     clearingMemory: false,
+    deviceConnected: false,
   };
 
   const els = {
@@ -16,6 +17,7 @@ const modelPage = (() => {
     sendButton: document.querySelector("#send-model-message"),
     clearMemoryButton: document.querySelector("#clear-model-memory"),
     inlineError: document.querySelector("#model-inline-error"),
+    connectionNote: document.querySelector("#model-connection-note"),
     generateReportButton: document.querySelector("#generate-model-report"),
     downloadReportButton: document.querySelector("#download-model-report"),
     reportEmpty: document.querySelector("#model-report-empty"),
@@ -76,7 +78,7 @@ const modelPage = (() => {
         (message) => `
           <article class="chat-bubble ${message.role === "user" ? "chat-bubble-user" : "chat-bubble-ai"}">
             <div class="chat-bubble-head">
-              <span>${message.role === "user" ? "你" : "助手"}</span>
+              <span>${message.role === "user" ? "请输入疑问" : "建议"}</span>
             </div>
             <p>${escapeHtml(message.text)}</p>
           </article>
@@ -110,15 +112,22 @@ const modelPage = (() => {
     els.reportEmpty.hidden = true;
     els.reportCard.hidden = false;
     els.downloadReportButton.disabled = false;
-    els.reportTitle.textContent = report.report_title || "办公健康分析报告";
+    els.reportTitle.textContent = "环境分析报告";
     els.reportRiskLevel.textContent = riskLabel(report.risk_level);
-    els.reportGeneratedAt.textContent = state.latestReport.generated_at || "--";
+    els.reportGeneratedAt.textContent = formatTimestamp(state.latestReport.generated_at);
     els.reportOverallSummary.textContent = report.overall_summary || "--";
     els.reportEnvironmentAnalysis.textContent = report.environment_analysis || "--";
     els.reportSedentaryAnalysis.textContent = report.sedentary_analysis || "--";
     els.reportTodoAdvice.textContent = report.todo_and_routine_advice || "--";
     renderBulletList(els.reportKeyFindings, report.key_findings);
     renderBulletList(els.reportImprovementActions, report.improvement_actions);
+  }
+
+  function renderConnectionState() {
+    if (!els.connectionNote) {
+      return;
+    }
+    els.connectionNote.hidden = state.deviceConnected;
   }
 
   function updateControls() {
@@ -155,9 +164,32 @@ const modelPage = (() => {
 
   async function bootstrap() {
     state.messages = [];
+    try {
+      const connectionState = await loadDeviceConnectionState(true);
+      state.deviceConnected = connectionState.connected;
+    } catch {
+      state.deviceConnected = false;
+    }
     renderChat();
     await loadLatestReport();
     renderReport();
+    renderConnectionState();
+  }
+
+  async function ensureDeviceConnected() {
+    try {
+      const connectionState = await loadDeviceConnectionState(true);
+      state.deviceConnected = connectionState.connected;
+      renderConnectionState();
+      if (!state.deviceConnected) {
+        setInlineError("请先连接闹钟");
+        return false;
+      }
+      return true;
+    } catch (error) {
+      setInlineError(error.message || "暂时无法确认设备状态，请稍后重试");
+      return false;
+    }
   }
 
   async function submitChat(event) {
@@ -169,6 +201,9 @@ const modelPage = (() => {
     const message = String(els.messageInput?.value || "").trim();
     if (!message) {
       setInlineError(uiText.textRequired);
+      return;
+    }
+    if (!(await ensureDeviceConnected())) {
       return;
     }
 
@@ -205,7 +240,7 @@ const modelPage = (() => {
     if (state.sending || state.generatingReport || state.clearingMemory) {
       return;
     }
-    const confirmed = window.confirm("确认清空本地对话缓存吗？这会删除后端保存的隐藏概括记录。");
+    const confirmed = window.confirm("确认清空这部分对话记录吗？");
     if (!confirmed) {
       return;
     }
@@ -232,6 +267,9 @@ const modelPage = (() => {
 
   async function generateReport() {
     if (state.sending || state.generatingReport || state.clearingMemory) {
+      return;
+    }
+    if (!(await ensureDeviceConnected())) {
       return;
     }
 

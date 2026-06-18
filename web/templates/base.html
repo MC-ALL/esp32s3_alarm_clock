@@ -13,7 +13,7 @@
         <div class="title-block">
           <p class="eyebrow">SMART CLOCK CONTROL CENTER</p>
           <h1>{{ page_title }}</h1>
-          <p class="header-note">Web 管配置，设备拉取执行；设备上报状态和事件。</p>
+          <p class="header-note">在这里查看状态、整理待办和管理提醒。</p>
         </div>
         <div id="save-status" class="save-status idle">空闲</div>
       </header>
@@ -26,6 +26,10 @@
         <a class="nav-link{% if active_page == 'events' %} active{% endif %}" href="/events">事件</a>
         <a class="nav-link{% if active_page == 'model' %} active{% endif %}" href="/model">模型</a>
       </nav>
+
+      <section id="device-connection-notice" class="soft-notice" hidden>
+        <p id="device-connection-text">闹钟暂未连接，连接后可查看实时状态、提问并生成报告。</p>
+      </section>
 
       <section id="load-error" class="error-panel" hidden>
         <p>页面数据加载失败。</p>

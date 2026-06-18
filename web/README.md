@@ -23,6 +23,7 @@ Current behavior:
 - completed Todo is stored on the Web side for viewing only
 - the clock periodically pulls config and reports status/events over LAN
 - AI is a read-only assistant on the Web side; it does not directly modify Todo, alarms, or voice settings
+- if the clock is not currently connected, the status page stops showing environment values and the model page blocks new AI actions
 
 Current model-page behavior:
 - model chat only reads current status/config summary, open Todo summary, continuous presence duration, and hidden memory summaries
@@ -31,6 +32,8 @@ Current model-page behavior:
 - health analysis report is generated only when the user explicitly clicks the generate button
 - only the latest successful health report is stored
 - PDF export reuses the latest saved report and does not call AI again
+- model chat and report generation require the clock to be online and the latest device status to remain valid within 30 seconds
+- when the clock is not connected, the page prompts the user to connect the clock first
 
 Current AI data files:
 - `data/model_dialog_memory.json`
@@ -40,7 +43,7 @@ Current AI data files:
 AI prerequisites:
 - valid remote AI configuration on the Web runtime side
 - readable API key file or equivalent environment override
-- current device status snapshot must already be available before model chat or report generation can succeed
+- current clock connection must be online and the latest device status must remain valid within 30 seconds before model chat or report generation can succeed
 
 ## Docker
 

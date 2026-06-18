@@ -6,11 +6,12 @@ from typing import Any
 
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-from reportlab.platypus import ListFlowable, ListItem, Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import ListFlowable, ListItem, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 PDF_FONT_NAME = "STSong-Light"
 
@@ -35,6 +36,60 @@ def _risk_label(value: str) -> str:
     return mapping.get(value, value or "--")
 
 
+def _format_report_time(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return "--"
+    if "T" in raw and len(raw) >= 16:
+        return raw[:16].replace("T", " ")
+    return raw[:16]
+
+
+def _build_meta_card(label: str, value: str) -> Table:
+    sample_styles = getSampleStyleSheet()
+    label_style = ParagraphStyle(
+        "ReportMetaLabelCN",
+        parent=sample_styles["BodyText"],
+        fontName=PDF_FONT_NAME,
+        fontSize=10.5,
+        leading=15,
+        alignment=TA_LEFT,
+        textColor=colors.HexColor("#5d6776"),
+        spaceAfter=0,
+    )
+    value_style = ParagraphStyle(
+        "ReportMetaValueCN",
+        parent=sample_styles["BodyText"],
+        fontName=PDF_FONT_NAME,
+        fontSize=11,
+        leading=18,
+        alignment=TA_LEFT,
+        textColor=colors.HexColor("#2c3440"),
+        spaceAfter=0,
+    )
+    table = Table(
+        [
+            [Paragraph(_escape_text(label), label_style)],
+            [Paragraph(_escape_text(value), value_style)],
+        ],
+        colWidths=[168 * mm],
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f4f7fb")),
+                ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#d7e0eb")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    return table
+
+
 def build_health_report_pdf(report: dict[str, Any]) -> bytes:
     report_fields = report.get("report_fields") if isinstance(report, dict) else None
     if not isinstance(report_fields, dict) or not report_fields:
@@ -50,7 +105,7 @@ def build_health_report_pdf(report: dict[str, Any]) -> bytes:
         rightMargin=18 * mm,
         topMargin=16 * mm,
         bottomMargin=16 * mm,
-        title=str(report_fields.get("report_title", "办公健康分析报告")),
+        title="环境分析报告",
     )
 
     sample_styles = getSampleStyleSheet()
@@ -58,50 +113,43 @@ def build_health_report_pdf(report: dict[str, Any]) -> bytes:
         "ReportTitleCN",
         parent=sample_styles["Title"],
         fontName=PDF_FONT_NAME,
-        fontSize=20,
-        leading=26,
+        fontSize=22,
+        leading=28,
         alignment=TA_CENTER,
-        spaceAfter=12,
-    )
-    meta_style = ParagraphStyle(
-        "ReportMetaCN",
-        parent=sample_styles["BodyText"],
-        fontName=PDF_FONT_NAME,
-        fontSize=10.5,
-        leading=15,
-        alignment=TA_CENTER,
-        textColor="#555555",
-        spaceAfter=12,
+        textColor=colors.HexColor("#1f2633"),
+        spaceAfter=10,
     )
     section_title_style = ParagraphStyle(
         "ReportSectionTitleCN",
         parent=sample_styles["Heading2"],
         fontName=PDF_FONT_NAME,
-        fontSize=13,
-        leading=18,
+        fontSize=13.5,
+        leading=19,
         alignment=TA_LEFT,
         spaceBefore=10,
         spaceAfter=6,
+        textColor=colors.HexColor("#253142"),
     )
     body_style = ParagraphStyle(
         "ReportBodyCN",
         parent=sample_styles["BodyText"],
         fontName=PDF_FONT_NAME,
         fontSize=11,
-        leading=17,
+        leading=18,
         alignment=TA_LEFT,
+        textColor=colors.HexColor("#2c3440"),
         spaceAfter=4,
     )
 
-    generated_at = str(report.get("generated_at", "") or "--")
+    generated_at = _format_report_time(report.get("generated_at", ""))
     risk_level = _risk_label(str(report_fields.get("risk_level", "") or ""))
 
     story = [
-        Paragraph(_escape_text(report_fields.get("report_title", "办公健康分析报告")), title_style),
-        Paragraph(
-            _escape_text("生成时间：%s　　风险等级：%s" % (generated_at, risk_level)),
-            meta_style,
-        ),
+        Paragraph("环境分析报告", title_style),
+        _build_meta_card("生成时间", generated_at),
+        Spacer(1, 8),
+        _build_meta_card("风险等级", risk_level),
+        Spacer(1, 10),
     ]
 
     sections = [

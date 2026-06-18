@@ -160,6 +160,8 @@ Current `/model` page behavior:
 - health analysis report is generated only when the user explicitly clicks the generate button
 - PDF export reuses the latest saved report and does not trigger a second AI request
 - actual AI calls require valid remote AI configuration and API key availability on the Web runtime side
+- model chat and report generation also require the clock to be online and the latest status to remain valid within 30 seconds
+- when the clock is not connected, the status page does not keep showing old environment values and the model page prompts the user to connect the clock first
 
 ## 4. Current Runtime Notes
 

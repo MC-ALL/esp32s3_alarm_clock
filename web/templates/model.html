@@ -4,20 +4,21 @@
   <section class="panel-card model-card single-page-card">
     <div class="section-head compact-head">
       <div>
-        <h2>模型对话页</h2>
-        <p class="section-note">只读 AI 助手。围绕环境、连续在位时长、Todo 与健康建议展开，不直接修改配置。</p>
+        <h2>模型对话</h2>
+        <p class="section-note">可以问环境状态、提醒节奏和日常建议。</p>
       </div>
     </div>
+    <p id="model-connection-note" class="soft-note" hidden>请先连接闹钟，再提问或生成报告。</p>
     <div class="model-layout">
       <section class="model-chat-panel">
         <div class="panel-label-row">
           <span class="panel-label">模型对话</span>
-          <span class="readonly-meta">当前页原文不长期保存，后端只保存隐藏概括。</span>
+          <span class="readonly-meta">有想问的就直接发出来吧。</span>
         </div>
 
         <div id="model-chat-empty" class="empty-state">
-          <p class="empty-title">还没有开始对话</p>
-          <p class="empty-note">可以问环境、连续在位时长、Todo 节奏或健康建议。回答会尽量简洁。</p>
+          <p class="empty-title">还没有开始提问</p>
+          <p class="empty-note">比如空气、光线、久坐时间，或者今天的节奏建议。</p>
         </div>
         <div id="model-chat-list" class="model-chat-list" hidden></div>
 
@@ -26,13 +27,13 @@
           <textarea
             id="model-message"
             class="model-message-input"
-            placeholder="比如：我现在适合继续工作吗？光照和连续在位时长有没有问题？"
+            placeholder="请输入疑问"
             maxlength="400"
             rows="4"
           ></textarea>
           <div class="model-action-row">
-            <button id="send-model-message" type="submit">发送问题</button>
-            <button id="clear-model-memory" class="ghost-button" type="button">清空对话缓存</button>
+            <button id="send-model-message" type="submit">开始提问</button>
+            <button id="clear-model-memory" class="ghost-button" type="button">清空记录</button>
           </div>
           <p id="model-inline-error" class="inline-error" hidden></p>
         </form>
@@ -41,8 +42,8 @@
       <section class="model-report-panel">
         <div class="section-head compact-head">
           <div>
-            <span class="panel-label">健康分析报告</span>
-            <p class="section-note">只在你点击“生成报告”时调用 AI。系统只保留最近一份报告。</p>
+            <span class="panel-label">环境分析报告</span>
+            <p class="section-note">需要时再生成，最近一份结果会留在这里。</p>
           </div>
           <div class="header-actions">
             <button id="generate-model-report" type="button">生成报告</button>
@@ -51,25 +52,21 @@
         </div>
 
         <div id="model-report-empty" class="empty-state">
-          <p class="empty-title">还没有最近报告</p>
-          <p class="empty-note">点击生成报告后，系统会基于当前设备状态、连续在位时长、Todo 摘要和少量事件摘要生成一份结构化报告。</p>
+          <p class="empty-title">还没有报告</p>
+          <p class="empty-note">生成后可以在这里查看最近一份分析结果。</p>
         </div>
 
         <article id="model-report-card" class="model-report-card" hidden>
           <div class="report-hero">
             <div>
-              <p class="eyebrow">LATEST HEALTH REPORT</p>
-              <h3 id="report-title">办公健康分析报告</h3>
+              <h3 id="report-title">环境分析报告</h3>
             </div>
             <div class="report-meta-block">
               <div class="report-risk">
                 <span class="metric-label">风险等级</span>
                 <strong id="report-risk-level" class="metric-value small">--</strong>
               </div>
-              <div class="report-meta">
-                <span class="metric-label">生成时间</span>
-                <strong id="report-generated-at" class="metric-value small">--</strong>
-              </div>
+              <p id="report-generated-at" class="report-generated-at">--</p>
             </div>
           </div>
 

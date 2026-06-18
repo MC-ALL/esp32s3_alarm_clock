@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from ai_client import AIServiceError
 from ai_storage import DialogMemoryItem, PresenceRuntimeState
+
+DEVICE_CONNECTION_MAX_AGE_S = 30
 
 KEY_EVENT_TYPES = {
     "todo_completed",
@@ -24,6 +26,19 @@ def parse_iso_datetime(value: Any) -> datetime | None:
         return datetime.fromisoformat(value)
     except ValueError:
         return None
+
+
+def is_device_connected(status: dict[str, Any], now: datetime | None = None) -> bool:
+    if bool(status.get("online")) is not True:
+        return False
+
+    updated_at = parse_iso_datetime(status.get("updated_at"))
+    if updated_at is None:
+        return False
+
+    current = now or datetime.now(timezone.utc).astimezone()
+    age_s = (current - updated_at).total_seconds()
+    return age_s >= -5 and age_s <= DEVICE_CONNECTION_MAX_AGE_S
 
 
 def advance_presence_runtime(state: PresenceRuntimeState, status: dict[str, Any]) -> PresenceRuntimeState:
@@ -147,9 +162,10 @@ def build_report_event_summary(events: list[dict[str, Any]], limit: int = 10) ->
 
 
 def _build_device_status_summary(status: dict[str, Any]) -> dict[str, Any]:
+    if not is_device_connected(status):
+        raise AIServiceError("请先连接闹钟", status_code=503)
+
     updated_at = str(status.get("updated_at", "") or "")
-    if not updated_at:
-        raise AIServiceError("当前设备状态暂不可用，请稍后重试", status_code=503)
 
     return {
         "device_id": str(status.get("device_id", "") or ""),

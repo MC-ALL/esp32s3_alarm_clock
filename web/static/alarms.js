@@ -21,7 +21,7 @@ const alarmsPage = (() => {
   function render() {
     els.alarmsList.innerHTML = "";
     if (!state.alarms.length) {
-      els.alarmsList.appendChild(buildEmptyState("暂无闹钟", "可以新增闹钟并保存到 Web 真源。"));
+      els.alarmsList.appendChild(buildEmptyState("还没有闹钟", "先新增一个提醒时间吧。"));
       return;
     }
 

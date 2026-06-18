@@ -161,7 +161,7 @@ const todosPage = (() => {
     els.completedList.innerHTML = "";
 
     if (!state.activeTodos.length) {
-      els.pendingList.appendChild(buildEmptyState("当前还没有未完成事项", "先添加一条待办，设备端下次拉取就会看到。"));
+      els.pendingList.appendChild(buildEmptyState("当前还没有待办", "先记下一件要做的事吧。"));
     } else {
       state.activeTodos.forEach((item, index, list) => {
         els.pendingList.appendChild(buildTodoItem(item, index, list.length));
@@ -169,7 +169,7 @@ const todosPage = (() => {
     }
 
     if (!state.completedTodos.length) {
-      els.completedList.appendChild(buildEmptyState("暂无已完成记录", "完成后的事项只在 Web 端查看，设备端不会再拉取。"));
+      els.completedList.appendChild(buildEmptyState("还没有已完成事项", "做完的事项会出现在这里。"));
     } else {
       state.completedTodos.forEach((item) => {
         const fragment = els.completedTemplate.content.cloneNode(true);

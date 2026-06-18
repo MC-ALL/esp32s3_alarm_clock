@@ -13,7 +13,7 @@ const eventsPage = (() => {
   function render() {
     els.list.innerHTML = "";
     if (!state.events.length) {
-      els.list.appendChild(buildEmptyState("暂无事件记录", "设备上报语音或提醒事件后，这里会出现记录。"));
+      els.list.appendChild(buildEmptyState("最近还没有记录", "新的提醒和操作会出现在这里。"));
       return;
     }
 
@@ -38,7 +38,7 @@ const eventsPage = (() => {
       if (event.presence_detected != null) {
         parts.push(event.presence_detected ? "有人" : "无人");
       }
-      fragment.querySelector(".event-meta").textContent = parts.join(" | ") || "无附加信息";
+      fragment.querySelector(".event-meta").textContent = parts.join(" | ") || "暂无更多信息";
       els.list.appendChild(fragment);
     });
   }
