@@ -169,6 +169,7 @@ PDF 渲染不重新请求 AI。
 建议新增：
 
 - `web/data/model_dialog_memory.json`
+- `web/data/model_presence_runtime.json`
 - `web/data/latest_health_report.json`
 
 ### 5.2 对话隐藏记忆

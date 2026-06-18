@@ -45,7 +45,7 @@ Already implemented:
 Partially implemented:
 
 - `DHT11` still has stability limits
-- Todo JSON parsing is still lightweight string-based parsing
+- Todo/config JSON parsing is now centralized in `sync_protocol` and based on `cJSON`
 - network target addressing still depends on configured host / IP
 
 Not yet fully mature:
@@ -85,10 +85,10 @@ Public headers and shared configuration.
 
 Key files:
 
-- `include/hw_config.h`
-- `include/app_config.h`
-- `include/net_service.h`
-- `include/settings_model.h`
+- `include/core/hw_config.h`
+- `include/core/app_config.h`
+- `include/connectivity/net_service.h`
+- `include/config/settings_model.h`
 
 ### `assets/`
 
@@ -128,28 +128,38 @@ Replace the serial port with your local device.
 
 If you only want to preview the Web control-center UI locally, you can start the Web app on the loopback address without exposing it to the LAN.
 
+This local preview flow is compatible with Windows. You can run it in PowerShell, Windows Terminal, or another local shell environment.
+
 From the `web/` directory:
 
 ```bash
 pip install -r requirements.txt
-uvicorn app:app --host 127.0.0.1 --port 8080 --reload
+python -m uvicorn app:app --host 127.0.0.1 --port 8078 --reload
 ```
 
 Then open:
 
 ```text
-http://127.0.0.1:8080/status
+http://127.0.0.1:8078/status
 ```
 
 Other local pages include:
 
-- `http://127.0.0.1:8080/todos`
-- `http://127.0.0.1:8080/alarms`
-- `http://127.0.0.1:8080/voice`
-- `http://127.0.0.1:8080/events`
-- `http://127.0.0.1:8080/model`
+- `http://127.0.0.1:8078/todos`
+- `http://127.0.0.1:8078/alarms`
+- `http://127.0.0.1:8078/voice`
+- `http://127.0.0.1:8078/events`
+- `http://127.0.0.1:8078/model`
 
 This loopback-only mode is mainly for checking page layout and interaction effects. It is not suitable for real device-side sync testing, because the device cannot access `127.0.0.1` on your development machine.
+
+Current `/model` page behavior:
+
+- model chat is a read-only assistant on the Web side
+- hidden dialog memory is stored locally on the Web side
+- health analysis report is generated only when the user explicitly clicks the generate button
+- PDF export reuses the latest saved report and does not trigger a second AI request
+- actual AI calls require valid remote AI configuration and API key availability on the Web runtime side
 
 ## 4. Current Runtime Notes
 
@@ -225,7 +235,7 @@ The `LOW_CLOCK` page is the current low-disturbance display mode. It is entered 
 
 Main runtime config lives in:
 
-- `include/app_config.h`
+- `include/core/app_config.h`
 
 This currently includes:
 
@@ -237,7 +247,7 @@ This currently includes:
 
 Pin mapping lives in:
 
-- `include/hw_config.h`
+- `include/core/hw_config.h`
 
 ## 6. Handoff Notes
 

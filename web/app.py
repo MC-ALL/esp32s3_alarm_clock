@@ -8,11 +8,27 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.templating import Jinja2Templates
+
+from ai_chat import generate_chat_response
+from ai_client import AIServiceError, load_ai_settings_from_env
+from ai_context import advance_presence_runtime, build_chat_context, build_report_context
+from ai_pdf import build_health_report_pdf
+from ai_report import generate_health_report
+from ai_storage import (
+    clear_dialog_memory,
+    ensure_ai_storage,
+    append_dialog_memory,
+    read_dialog_memory,
+    read_latest_report,
+    read_presence_runtime,
+    write_latest_report,
+    write_presence_runtime,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("CLOCK_WEB_DATA_DIR", str(BASE_DIR / "data")))
@@ -22,6 +38,9 @@ COMPLETED_TODOS_FILE = DATA_DIR / "todos_completed.json"
 DEVICE_STATUS_FILE = DATA_DIR / "device_status.json"
 EVENT_HISTORY_FILE = DATA_DIR / "event_history.json"
 DEVICE_CONFIG_FILE = DATA_DIR / "device_config.json"
+MODEL_DIALOG_MEMORY_FILE = DATA_DIR / "model_dialog_memory.json"
+MODEL_PRESENCE_RUNTIME_FILE = DATA_DIR / "model_presence_runtime.json"
+LATEST_HEALTH_REPORT_FILE = DATA_DIR / "latest_health_report.json"
 MAX_TEXT_LENGTH = 96
 MAX_EVENT_HISTORY = 500
 DEFAULT_DEVICE_ID = "clock-001"
@@ -29,6 +48,11 @@ DEFAULT_DEVICE_ID = "clock-001"
 app = FastAPI(title="Clock Control Center")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+@app.exception_handler(AIServiceError)
+async def ai_service_error_handler(_: Request, exc: AIServiceError) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
 class CreateTodoRequest(BaseModel):
@@ -95,6 +119,10 @@ class DeviceEventRequest(BaseModel):
     humidity_percent: float | None = None
     lux: float | None = None
     presence_detected: bool | None = None
+
+
+class ModelChatRequest(BaseModel):
+    message: str
 
 
 def model_to_dict(model: BaseModel) -> dict[str, Any]:
@@ -190,6 +218,7 @@ def ensure_storage() -> None:
         write_json_file(EVENT_HISTORY_FILE, [])
     if not DEVICE_CONFIG_FILE.exists():
         write_json_file(DEVICE_CONFIG_FILE, default_device_config())
+    ensure_ai_storage(MODEL_DIALOG_MEMORY_FILE, MODEL_PRESENCE_RUNTIME_FILE)
 
 
 
@@ -442,6 +471,52 @@ def read_event_history() -> list[dict[str, Any]]:
     return raw
 
 
+def sync_presence_runtime_from_status(status: dict[str, Any]) -> dict[str, Any]:
+    ensure_storage()
+    runtime_state = read_presence_runtime(MODEL_PRESENCE_RUNTIME_FILE)
+    next_state = advance_presence_runtime(runtime_state, status)
+    if next_state != runtime_state:
+        write_presence_runtime(MODEL_PRESENCE_RUNTIME_FILE, next_state)
+    return next_state.model_dump()
+
+
+def get_presence_runtime_for_status(status: dict[str, Any]) -> Any:
+    runtime_state = read_presence_runtime(MODEL_PRESENCE_RUNTIME_FILE)
+    next_state = advance_presence_runtime(runtime_state, status)
+    if next_state != runtime_state:
+        write_presence_runtime(MODEL_PRESENCE_RUNTIME_FILE, next_state)
+    return next_state
+
+
+def get_chat_context_data() -> dict[str, Any]:
+    status = read_device_status()
+    config = read_device_config()
+    open_todos = read_active_todos()
+    dialog_memory_items = read_dialog_memory(MODEL_DIALOG_MEMORY_FILE)
+    runtime_state = get_presence_runtime_for_status(status)
+    return build_chat_context(status, config, open_todos, dialog_memory_items, runtime_state)
+
+
+def get_report_context_data() -> dict[str, Any]:
+    status = read_device_status()
+    config = read_device_config()
+    open_todos = read_active_todos()
+    event_history = read_event_history()
+    runtime_state = get_presence_runtime_for_status(status)
+    return build_report_context(status, config, open_todos, event_history, runtime_state)
+
+
+def report_record_to_response_payload(report_record: Any, include_input_snapshot: bool = False) -> dict[str, Any]:
+    payload = {
+        "generated_at": report_record.generated_at,
+        "render_version": report_record.render_version,
+        "report_fields": report_record.report_fields,
+    }
+    if include_input_snapshot:
+        payload["input_snapshot"] = report_record.input_snapshot
+    return payload
+
+
 
 def update_device_config(alarms: list[dict[str, Any]] | None, voice_settings: dict[str, bool] | None, config_version: int | None) -> dict[str, Any]:
     config = read_device_config()
@@ -651,6 +726,7 @@ def post_device_status(payload: DeviceStatusRequest) -> dict[str, Any]:
         "presence_detected": payload.presence_detected,
     }
     write_json_file(DEVICE_STATUS_FILE, status)
+    sync_presence_runtime_from_status(status)
     return {"ok": True, "updated_at": status["updated_at"]}
 
 
@@ -662,10 +738,13 @@ def get_device_status() -> dict[str, Any]:
 @app.post("/api/device/events")
 def post_device_event(payload: DeviceEventRequest) -> dict[str, Any]:
     events = read_event_history()
+    event_type = payload.event_type.strip()
+    if not event_type:
+        raise HTTPException(status_code=400, detail="event_type must not be empty")
     event = {
         "device_id": payload.device_id,
         "event_at": payload.event_at or now_iso(),
-        "event_type": payload.event_type.strip(),
+        "event_type": event_type,
         "todo_id": payload.todo_id,
         "temperature_c": payload.temperature_c,
         "humidity_percent": payload.humidity_percent,
@@ -703,3 +782,63 @@ def get_device_events(
     filtered = filtered[-limit:]
     filtered.reverse()
     return {"items": filtered, "count": len(filtered)}
+
+
+@app.post("/api/model/chat")
+async def post_model_chat(payload: ModelChatRequest) -> dict[str, Any]:
+    try:
+        settings = load_ai_settings_from_env()
+        context = get_chat_context_data()
+        result = await generate_chat_response(settings, context, payload.message)
+        append_dialog_memory(MODEL_DIALOG_MEMORY_FILE, result.memory_item)
+        return {"answer_text": result.answer_text}
+    except AIServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@app.delete("/api/model/memory")
+def delete_model_memory() -> dict[str, bool]:
+    clear_dialog_memory(MODEL_DIALOG_MEMORY_FILE)
+    return {"ok": True}
+
+
+@app.post("/api/model/report/generate")
+async def post_model_report_generate() -> dict[str, Any]:
+    try:
+        settings = load_ai_settings_from_env()
+        context = get_report_context_data()
+        report_record = await generate_health_report(settings, context)
+        write_latest_report(LATEST_HEALTH_REPORT_FILE, report_record)
+        return report_record_to_response_payload(report_record)
+    except AIServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@app.get("/api/model/report")
+def get_model_report() -> dict[str, Any]:
+    report_record = read_latest_report(LATEST_HEALTH_REPORT_FILE)
+    if report_record is None:
+        raise HTTPException(status_code=404, detail="health report not found")
+    return report_record_to_response_payload(report_record)
+
+
+@app.get("/api/model/report/pdf")
+def get_model_report_pdf() -> Response:
+    report_record = read_latest_report(LATEST_HEALTH_REPORT_FILE)
+    if report_record is None:
+        raise HTTPException(status_code=404, detail="health report not found")
+
+    try:
+        pdf_bytes = build_health_report_pdf(report_record.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="failed to build health report pdf") from exc
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="smart-clock-health-report.pdf"',
+        },
+    )

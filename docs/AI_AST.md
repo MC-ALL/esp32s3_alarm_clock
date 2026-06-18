@@ -169,10 +169,16 @@ AI 只读取当前 Web 端已有的状态与摘要数据，然后返回结构化
 - `web/data/todos_active.json`
 - `web/data/event_history.json`
 
-同时新增两份 AI 相关文件：
+同时新增三份 AI 相关文件：
 
 - `web/data/model_dialog_memory.json`
+- `web/data/model_presence_runtime.json`
 - `web/data/latest_health_report.json`
+
+其中：
+
+- `model_dialog_memory.json` 与 `model_presence_runtime.json` 可在初始化阶段创建
+- `latest_health_report.json` 只有在第一次成功生成报告后才会出现
 
 ## 8. Web 接口说明
 
